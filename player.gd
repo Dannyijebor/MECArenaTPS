@@ -97,15 +97,16 @@ func fire() -> void:
 
 func _find_auto_aim_target(origin: Vector3, forward: Vector3) -> Node3D:
 	var best: Node3D = null
-	var best_angle := deg_to_rad(AUTO_AIM_ANGLE)
-	for enemy in get_tree().get_nodes_in_group("enemy"):
-		if not is_instance_valid(enemy):
+	var best_angle: float = deg_to_rad(AUTO_AIM_ANGLE)
+	for node in get_tree().get_nodes_in_group("enemy"):
+		var enemy := node as Node3D
+		if enemy == null or not is_instance_valid(enemy):
 			continue
-		var to_enemy := (enemy.global_position + Vector3(0, 0.8, 0)) - origin
-		var dist := to_enemy.length()
+		var to_enemy: Vector3 = (enemy.global_position + Vector3(0, 0.8, 0)) - origin
+		var dist: float = to_enemy.length()
 		if dist > AUTO_AIM_RANGE:
 			continue
-		var angle := forward.angle_to(to_enemy.normalized())
+		var angle: float = forward.angle_to(to_enemy.normalized())
 		if angle < best_angle:
 			best_angle = angle
 			best = enemy
