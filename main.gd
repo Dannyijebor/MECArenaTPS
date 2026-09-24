@@ -14,9 +14,9 @@ func _ready() -> void:
 	print("  lighting built")
 	print("=== finished, children=", get_child_count(), "===")
 	for child in get_children():
-	    print("  - ", child.name, " (", child.get_class(), ")")
-	    for sub in child.get_children():
-	        print("      - ", sub.name, " (", sub.get_class(), ")")
+		print("  - ", child.name, " (", child.get_class(), ")")
+		for sub in child.get_children():
+			print("      - ", sub.name, " (", sub.get_class(), ")")
 
 func _build_environment() -> void:
 	var env := WorldEnvironment.new()
