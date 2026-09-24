@@ -3,20 +3,11 @@ extends Node3D
 const FLOOR_SIZE := 40.0
 
 func _ready() -> void:
-	print("=== _ready() started ===")
 	_build_environment()
-	print("  environment built")
 	_build_floor()
-	print("  floor built")
 	_build_player()
-	print("  player built")
 	_build_lighting()
-	print("  lighting built")
-	print("=== finished, children=", get_child_count(), "===")
-	for child in get_children():
-		print("  - ", child.name, " (", child.get_class(), ")")
-		for sub in child.get_children():
-			print("      - ", sub.name, " (", sub.get_class(), ")")
+	_build_touch_controls()
 
 func _build_environment() -> void:
 	var env := WorldEnvironment.new()
@@ -86,12 +77,18 @@ func _build_player() -> void:
 	camera.rotation_degrees = Vector3(-8, 0, 0)
 	camera.current = true
 	cam_pivot.add_child(camera)
-	print("    _build_player: about to add player to scene, player=", player)
+
 	add_child(player)
-	print("    _build_player: player added, parent children=", get_child_count())
 
 func _build_lighting() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45, -30, 0)
 	sun.light_energy = 1.2
 	add_child(sun)
+
+func _build_touch_controls() -> void:
+	var controls_script = load("res://touch_controls.gd")
+	var controls := CanvasLayer.new()
+	controls.name = "TouchControls"
+	controls.set_script(controls_script)
+	add_child(controls)
