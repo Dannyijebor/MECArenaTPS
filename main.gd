@@ -125,16 +125,6 @@ func _spawn_enemy_at(pos: Vector3, enemy_script: Script) -> void:
 	var e := CharacterBody3D.new()
 	e.set_script(enemy_script)
 	e.position = pos
-	var mesh := MeshInstance3D.new()
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.4
-	capsule.height = 1.6
-	mesh.mesh = capsule
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.2, 0.15)
-	mesh.material_override = mat
-	mesh.position = Vector3(0, 0.8, 0)
-	e.add_child(mesh)
 	var col := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.4
