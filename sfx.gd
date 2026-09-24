@@ -8,6 +8,10 @@ const _PATHS := {
 	"reload":      "res://sounds/reload.wav",
 	"wave_start":  "res://sounds/wave_start.wav",
 	"empty":       "res://sounds/empty.wav",
+	"footstep":    "res://sounds/footstep.wav",
+	"ambient_hum": "res://sounds/ambient_hum.wav",
+	"distant_gunfire": "res://sounds/distant_gunfire.wav",
+	"wave_clear":  "res://sounds/wave_clear.wav",
 }
 
 static func play(sound_name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:

@@ -33,9 +33,10 @@ const AIM_ARM_PITCH := -75.0
 const AIM_ELBOW_BEND := 65.0
 const AIM_HAND_TWIST := 15.0
 
-var hp := MAX_HP
+var hp: int = 3
 var _player: Node3D = null
 var _hit_flash := 0.0
+var _dying := false
 var _contact_cd := 0.0
 var _shoot_cd := 0.0
 enum AIState { APPROACH, COMBAT, COVER }
@@ -47,6 +48,15 @@ var _cover_target: Vector3 = Vector3.ZERO
 var _cover_timer: float = 0.0
 var _recent_damage_timer: float = 0.0
 var _last_hp: int = 999
+
+# ---- Enemy types ----
+var enemy_type: int = 0
+var _t_speed_mult: float = 1.0
+var _t_hp: int = 3
+var _t_range: float = 18.0
+var _t_cd: float = 1.6
+var _t_dmg: int = 6
+var _t_color: Color = Color(0.55, 0.16, 0.16)
 var _body_root: Node3D = null
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
@@ -59,6 +69,7 @@ static var _gun_mesh: Mesh = null
 static var _gun_mat: StandardMaterial3D = null
 
 func _ready() -> void:
+	_apply_type()
 	add_to_group("enemy")
 	_build_visual()
 	_find_skeleton()
@@ -126,9 +137,10 @@ func _find_skeleton() -> void:
 	if _body_root == null:
 		return
 	_skeleton = _find_skeleton_recursive(_body_root)
+	_add_clothing(_t_color)
 	if _skeleton == null:
 		return
-	var wanted := ["thigh_l", "thigh_r", "calf_l", "calf_r", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_r", "hand_l", "spine_01", "spine_02"]
+	var wanted := ["thigh_l", "thigh_r", "calf_l", "calf_r", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_r", "hand_l", "spine_01", "spine_02", "neck", "head", "hips"]
 	for i in range(_skeleton.get_bone_count()):
 		var n: String = _skeleton.get_bone_name(i)
 		for short in wanted:
@@ -223,6 +235,28 @@ func _apply_pose(speed: float) -> void:
 	_set_bone_local("lowerarm_r", 0.0, -55.0, 0.0)
 	_set_bone_local("hand_l", 0.0, 0.0, AIM_HAND_TWIST)
 	_set_bone_local("hand_r", 0.0, 0.0, -AIM_HAND_TWIST)
+	# Hip counter-sway while walking
+	if moving:
+		var hip_yaw: float = -s * 4.5
+		_set_bone_local("hips", 0.0, 0.0, hip_yaw)
+	# Forward lean at speed
+	var lean_pitch: float = 0.0
+	if speed > SPEED * 1.2:
+		lean_pitch = -8.0
+	elif moving:
+		lean_pitch = -3.0
+	_set_bone_local("spine_01", lean_pitch)
+	# Head tracking — turn toward player
+	if _player != null and is_instance_valid(_player):
+		var to_p: Vector3 = _player.global_position - global_position
+		to_p.y = 0.0
+		if to_p.length() > 0.1:
+			var local_p: Vector3 = to_p.rotated(Vector3.UP, -rotation.y)
+			var yaw_deg: float = rad_to_deg(atan2(-local_p.x, -local_p.z))
+			yaw_deg = clampf(yaw_deg, -50.0, 50.0)
+			_set_bone_local("neck", 0.0, 0.0, yaw_deg * 0.55)
+			_set_bone_local("head", 0.0, 0.0, yaw_deg * 0.45)
+
 
 func _spawn_muzzle_flash() -> void:
 	var flash := OmniLight3D.new()
@@ -234,10 +268,20 @@ func _spawn_muzzle_flash() -> void:
 	var t := get_tree().create_timer(0.06)
 	t.timeout.connect(func(): if is_instance_valid(flash): flash.queue_free())
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, hit_pos: Vector3 = Vector3.ZERO) -> void:
 	SFX.play("hit", -4.0, randf_range(0.95, 1.08))
 	_recent_damage_timer = DAMAGE_MEMORY_TIME
 	hp -= amount
+	var _is_hs := false
+	if hit_pos != Vector3.ZERO:
+		var head_y: float = global_position.y + 1.5
+		_is_hs = hit_pos.y > head_y
+	var _report_dmg := amount * 2 if _is_hs else amount
+	if _is_hs:
+		hp -= amount
+	if _player != null and _player.has_method("report_hit"):
+		_player.call("report_hit", _report_dmg, _is_hs, hit_pos)
+	_apply_stagger(hit_pos, _is_hs)
 	_hit_flash = 0.12
 	_flash_materials(true)
 	if hp <= 0:
@@ -352,7 +396,7 @@ func _try_shoot_player() -> void:
 	var c = hit.collider
 	if c == _player or (c is Node and c.is_in_group("player")):
 		if c.has_method("take_damage"):
-			c.call("take_damage", SHOOT_DAMAGE)
+			c.call("take_damage", _t_dmg)
 
 func _spawn_tracer(from: Vector3, to: Vector3) -> void:
 	var dist := from.distance_to(to)
@@ -379,17 +423,19 @@ func _spawn_tracer(from: Vector3, to: Vector3) -> void:
 	)
 
 func _tick_combat(delta: float) -> void:
+	if _t_range <= 0.0:
+		return
 	if _player == null or hp <= 0:
 		return
 	_shoot_cd -= delta
 	if _shoot_cd > 0.0:
 		return
 	var d := global_position.distance_to(_player.global_position)
-	if d < SHOOT_MIN_DIST or d > SHOOT_RANGE:
+	if d < SHOOT_MIN_DIST or d > _t_range:
 		return
 	if not _has_los_to_player():
 		return
-	_shoot_cd = SHOOT_COOLDOWN
+	_shoot_cd = _t_cd
 	_try_shoot_player()
 
 
@@ -451,7 +497,7 @@ func _tick_ai(delta: float) -> void:
 				to_cover.y = 0.0
 				move_dir = Vector3.ZERO if to_cover.length() < 0.6 else to_cover.normalized()
 
-	var speed: float = SPEED if _ai_state == AIState.APPROACH else STRAFE_SPEED
+	var speed: float = (SPEED * _t_speed_mult) if _ai_state == AIState.APPROACH else (STRAFE_SPEED * _t_speed_mult)
 	velocity.x = move_dir.x * speed
 	velocity.z = move_dir.z * speed
 
@@ -480,3 +526,113 @@ func _find_cover_point() -> Vector3:
 			best_score = score
 			best = hide
 	return best
+
+
+func _apply_stagger(hit_pos: Vector3, is_headshot: bool) -> void:
+	if is_headshot:
+		_hit_flash = 0.2
+		hp -= 0
+	var push: float = 8.0 if is_headshot else 4.0
+	var dir: Vector3 = (global_position - hit_pos)
+	dir.y = 0.0
+	if dir.length() > 0.01:
+		dir = dir.normalized()
+		velocity.x += dir.x * push
+		velocity.z += dir.z * push
+
+
+func _die_ragdoll() -> void:
+	if _dying:
+		return
+	_dying = true
+	velocity = Vector3.ZERO
+	# turn off collision + AI
+	set_physics_process(false)
+	for c in get_children():
+		if c is CollisionShape3D:
+			(c as CollisionShape3D).disabled = true
+	# muzzle/sfx
+	SFX.play("hit", -6.0, 0.7)
+	# try get body root, ragdoll-rotate it
+	var br: Node3D = _body_root
+	if br != null:
+		var fall_dir := 1.0 if randf() > 0.5 else -1.0
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(br, "rotation:z", br.rotation.z + deg_to_rad(88.0) * fall_dir, 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tw.tween_property(br, "position:y", br.position.y - 0.1, 0.6)
+	# emit death for wave logic
+	emit_signal("died")
+	# fade + free
+	var t2 := get_tree().create_timer(1.2)
+	t2.timeout.connect(func() -> void:
+		if is_instance_valid(self):
+			queue_free()
+	)
+
+
+
+func _add_clothing(color: Color) -> void:
+	_attach_box("spine_02", Vector3(0.38, 0.42, 0.24), Vector3(0, 0.12, 0), color)
+	_attach_box("hips", Vector3(0.36, 0.22, 0.26), Vector3(0, 0.0, 0), color.darkened(0.35))
+	_attach_box("thigh_l", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
+	_attach_box("thigh_r", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
+	_attach_box("upperarm_l", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
+	_attach_box("upperarm_r", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
+	_attach_box("calf_l", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
+	_attach_box("calf_r", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
+
+func _attach_box(bone: String, size: Vector3, offset: Vector3, color: Color) -> void:
+	if _skeleton == null:
+		return
+	var i := _skeleton.find_bone(bone)
+	if i < 0:
+		return
+	var att := BoneAttachment3D.new()
+	att.bone_idx = i
+	att.bone_name = bone
+	_skeleton.add_child(att)
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.position = offset
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.9
+	mat.metallic = 0.05
+	mesh.material_override = mat
+	att.add_child(mesh)
+
+
+func _apply_type() -> void:
+	match enemy_type:
+		0:  # GRUNT — baseline
+			_t_speed_mult = 1.0
+			_t_hp = 3
+			_t_range = 18.0
+			_t_cd = 1.6
+			_t_dmg = 6
+			_t_color = Color(0.55, 0.16, 0.16)
+		1:  # RUSHER — fast, no gun, melee
+			_t_speed_mult = 1.85
+			_t_hp = 2
+			_t_range = 0.0
+			_t_cd = 0.0
+			_t_dmg = 0
+			_t_color = Color(0.90, 0.42, 0.10)
+		2:  # TANK — slow, tough, hits hard
+			_t_speed_mult = 0.62
+			_t_hp = 10
+			_t_range = 14.0
+			_t_cd = 2.4
+			_t_dmg = 12
+			_t_color = Color(0.42, 0.14, 0.62)
+		3:  # SNIPER — long range, one hard shot
+			_t_speed_mult = 0.85
+			_t_hp = 2
+			_t_range = 32.0
+			_t_cd = 3.2
+			_t_dmg = 18
+			_t_color = Color(0.92, 0.72, 0.15)
+	hp = _t_hp

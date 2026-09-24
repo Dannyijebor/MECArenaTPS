@@ -28,6 +28,12 @@ const SLIDE_COOLDOWN := 1.0
 const FOV_BASE := 75.0
 const FOV_SPRINT := 88.0
 const FOV_SLIDE := 96.0
+const ADS_FOV := 55.0
+const ADS_SPEED_MULT := 0.55
+const ADS_SPREAD_MULT := 0.5
+const ADS_RECOIL_MULT := 0.6
+const ADS_AA_MULT := 0.5
+const ADS_CAM_Y := 1.55
 const STAND_EYE_Y := 1.4
 const CROUCH_EYE_Y := 0.9
 const SLIDE_EYE_Y := 0.6
@@ -49,11 +55,20 @@ var _sprinting := false
 var _sprint_hold := 0.0
 var _crouching := false
 var _sliding := false
+var _aiming := false
 var _slide_timer := 0.0
 var _slide_cd := 0.0
 var _slide_dir := Vector3.ZERO
 var _was_on_floor := true
 var _shake_amt := 0.0
+var _skeleton: Skeleton3D = null
+var _bones: Dictionary = {}
+var _walk_phase := 0.0
+var _last_step_idx: int = 0
+var _model_root: Node3D = null
+var hit_marker_time := 0.0
+var hit_marker_headshot := false
+var damage_numbers: Array = []
 var _cam_base_pos := Vector3(0, 0.6, 4.0)
 var current_weapon_id: String = WeaponDB.RIFLE
 var ammo: int = 0
@@ -67,8 +82,10 @@ var touch_look := Vector2.ZERO
 var touch_jump := false
 var touch_fire := false
 var touch_crouch := false
+var touch_aim := false
 
 func _ready() -> void:
+	_setup_human_visual()
 	ammo = WeaponDB.mag_size(current_weapon_id)
 	_cam_base_pos = camera.position
 	camera.fov = FOV_BASE
@@ -191,6 +208,8 @@ func fire() -> void:
 	var origin: Vector3 = camera.global_position
 	var forward: Vector3 = -camera.global_transform.basis.z.normalized()
 	var aim_angle: float = float(wd.get("auto_aim_angle", 12.0))
+	if _aiming:
+		aim_angle *= ADS_AA_MULT
 	var target: Node3D = _find_auto_aim_target(origin, forward, aim_angle)
 	var base_dir: Vector3 = forward
 	if target != null:
@@ -202,6 +221,8 @@ func fire() -> void:
 
 	var pellets: int = int(wd.get("pellets", 1))
 	var spread_rad: float = deg_to_rad(float(wd.get("spread_deg", 1.0)))
+	if _aiming:
+		spread_rad *= ADS_SPREAD_MULT
 	var damage: int = int(wd.get("damage", 5))
 	var bullet_script: Script = load("res://bullet.gd")
 
@@ -229,7 +250,10 @@ func fire() -> void:
 			flash.queue_free()
 	)
 
-	_recoil_pitch += deg_to_rad(float(wd.get("recoil_pitch", 1.0)))
+	var rp: float = float(wd.get("recoil_pitch", 1.0))
+	if _aiming:
+		rp *= ADS_RECOIL_MULT
+	_recoil_pitch += deg_to_rad(rp)
 
 	if ammo <= 0:
 		_start_reload()
@@ -300,6 +324,13 @@ func heal(amount: int) -> void:
 
 
 func _tick_movement_feel(delta: float) -> void:
+	_aiming = touch_aim and not _sliding
+	_tick_player_walk(delta)
+	if hit_marker_time > 0.0:
+		hit_marker_time -= delta
+	for dn in damage_numbers:
+		dn["life"] -= delta
+	damage_numbers = damage_numbers.filter(func(d): return d["life"] > 0.0)
 	var stick_len: float = touch_move.length()
 
 	if stick_len > SPRINT_THRESHOLD:
@@ -331,6 +362,8 @@ func _tick_movement_feel(delta: float) -> void:
 			_sliding = false
 
 	var target_y := STAND_EYE_Y
+	if _aiming:
+		target_y = ADS_CAM_Y
 	if _sliding:
 		target_y = SLIDE_EYE_Y
 	elif _crouching:
@@ -338,7 +371,9 @@ func _tick_movement_feel(delta: float) -> void:
 	cam_pivot.position.y = lerp(cam_pivot.position.y, target_y, delta * 12.0)
 
 	var target_fov := FOV_BASE
-	if _sliding:
+	if _aiming and not _sliding:
+		target_fov = ADS_FOV
+	elif _sliding:
 		target_fov = FOV_SLIDE
 	elif _sprinting and stick_len > 0.5:
 		target_fov = FOV_SPRINT
@@ -352,17 +387,26 @@ func _tick_movement_feel(delta: float) -> void:
 			SFX.play("hurt", -12.0, 0.7)
 	_was_on_floor = on_floor
 
+	# Head bob — camera rises/falls per step
+	var bob_y := 0.0
+	var horiz_speed: float = Vector2(velocity.x, velocity.z).length()
+	if is_on_floor() and horiz_speed > 0.5 and not _sliding:
+		bob_y = sin(_walk_phase * 2.0) * 0.022
+	elif horiz_speed < 0.3:
+		bob_y = sin(Time.get_ticks_msec() * 0.001 * 1.9) * 0.006
 	if _shake_amt > 0.001:
 		var ox := randf_range(-1.0, 1.0) * _shake_amt
 		var oy := randf_range(-1.0, 1.0) * _shake_amt
 		var oz := randf_range(-1.0, 1.0) * _shake_amt
-		camera.position = _cam_base_pos + Vector3(ox, oy, oz)
+		camera.position = _cam_base_pos + Vector3(ox, oy + bob_y, oz)
 		_shake_amt = move_toward(_shake_amt, 0.0, delta * 2.5)
 	else:
-		camera.position = _cam_base_pos
+		camera.position = _cam_base_pos + Vector3(0, bob_y, 0)
 
 
 func _get_move_speed() -> float:
+	if _aiming:
+		return SPEED * ADS_SPEED_MULT
 	if _sliding:
 		return SPEED * SLIDE_MULT
 	if _crouching:
@@ -370,3 +414,178 @@ func _get_move_speed() -> float:
 	if _sprinting:
 		return SPEED * SPRINT_MULT
 	return SPEED
+
+
+func report_hit(dmg: int, is_headshot: bool, world_pos: Vector3) -> void:
+	hit_marker_time = 0.14
+	hit_marker_headshot = is_headshot
+	damage_numbers.append({
+		"value": dmg,
+		"pos": world_pos + Vector3(0, 0.3, 0),
+		"life": 0.85,
+		"max_life": 0.85,
+		"headshot": is_headshot,
+	})
+	if damage_numbers.size() > 12:
+		damage_numbers.pop_front()
+	if is_headshot:
+		SFX.play("hit", -1.0, 1.35)
+	else:
+		SFX.play("hit", -4.0, randf_range(0.95, 1.08))
+
+
+
+func _setup_human_visual() -> void:
+	for c in get_children():
+		if c is MeshInstance3D:
+			(c as MeshInstance3D).visible = false
+
+	var scene: PackedScene = load("res://models/base_characters/Superhero_Male_FullBody.gltf")
+	if scene == null:
+		return
+	var inst: Node = scene.instantiate()
+	if not (inst is Node3D):
+		return
+	_model_root = inst as Node3D
+	_model_root.name = "HumanModel"
+	add_child(_model_root)
+	_model_root.position = Vector3(0, -0.05, 0)
+	_model_root.rotation.y = PI
+
+	_skeleton = _find_skeleton(_model_root)
+	if _skeleton == null:
+		return
+	_cache_bones()
+	_autoscale(_model_root)
+	_add_clothing(Color(0.13, 0.28, 0.55))
+	_apply_aim_once()
+
+func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n as Skeleton3D
+	for c in n.get_children():
+		var r := _find_skeleton(c)
+		if r != null:
+			return r
+	return null
+
+func _cache_bones() -> void:
+	var wanted := ["thigh_l", "thigh_r", "calf_l", "calf_r",
+		"upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r",
+		"hand_l", "hand_r", "spine_01", "spine_02", "hips", "neck", "head"]
+	for name in wanted:
+		var i := _skeleton.find_bone(name)
+		if i >= 0:
+			_bones[name] = i
+
+func _autoscale(root: Node3D) -> void:
+	var aabb := _compute_aabb(root)
+	if aabb.size.y < 0.01:
+		return
+	var scale_factor: float = 1.75 / aabb.size.y
+	root.scale = Vector3(scale_factor, scale_factor, scale_factor)
+	# sink model so feet touch ground — model pos is offset later
+
+func _compute_aabb(n: Node) -> AABB:
+	var total := AABB()
+	var first := true
+	for c in n.get_children():
+		if c is MeshInstance3D:
+			var m := c as MeshInstance3D
+			var a := m.get_aabb()
+			var t := m.transform
+			var world_a := t * a
+			if first:
+				total = world_a; first = false
+			else:
+				total = total.merge(world_a)
+		total = total.merge(_compute_aabb(c)) if not first else total
+	return total
+
+func _set_bone_local(bone: String, pitch: float, roll: float = 0.0, yaw: float = 0.0) -> void:
+	if not _bones.has(bone):
+		return
+	var idx: int = _bones[bone]
+	var rest: Basis = _skeleton.get_bone_rest(idx).basis
+	var extra := Basis(Vector3.RIGHT, deg_to_rad(pitch)) * Basis(Vector3.FORWARD, deg_to_rad(roll)) * Basis(Vector3.UP, deg_to_rad(yaw))
+	_skeleton.set_bone_pose_rotation(idx, (rest * extra).get_rotation_quaternion())
+
+func _apply_aim_once() -> void:
+	_set_bone_local("upperarm_l", 0.0, 72.0, -12.0)
+	_set_bone_local("upperarm_r", 0.0, -72.0, 12.0)
+	_set_bone_local("lowerarm_l", 0.0, 55.0, 0.0)
+	_set_bone_local("lowerarm_r", 0.0, -55.0, 0.0)
+	_set_bone_local("hand_l", 0.0, 0.0, 15.0)
+	_set_bone_local("hand_r", 0.0, 0.0, -15.0)
+
+func _tick_player_walk(delta: float) -> void:
+	if _skeleton == null or _bones.is_empty():
+		return
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	var moving := speed > 0.3
+	if moving:
+		_walk_phase += 3.2 * (speed / 5.5)
+	var step_idx: int = int(_walk_phase / PI)
+	if step_idx != _last_step_idx and is_on_floor():
+		_last_step_idx = step_idx
+		SFX.play("footstep", -12.0, randf_range(0.9, 1.12))
+	var s: float = sin(_walk_phase)
+	var c: float = cos(_walk_phase)
+	var sw := 34.0 if moving else 0.0
+	_set_bone_local("thigh_l", s * sw)
+	_set_bone_local("thigh_r", -s * sw)
+	_set_bone_local("calf_l", -max(0.0, c) * sw * 0.7)
+	_set_bone_local("calf_r", -max(0.0, -c) * sw * 0.7)
+	# Hip sway — natural walk yaw
+	if moving:
+		var hip_yaw: float = s * 5.0
+		_set_bone_local("hips", 0.0, 0.0, hip_yaw)
+	# Torso lean — forward at speed
+	var lean_pitch: float = 0.0
+	if _sprinting:
+		lean_pitch = -7.0
+	elif moving:
+		lean_pitch = -3.5
+	_set_bone_local("spine_01", lean_pitch)
+	# Idle breathing
+	var breath: float = 0.0
+	if not moving:
+		breath = sin(Time.get_ticks_msec() * 0.001 * 1.9) * 2.2
+	_set_bone_local("spine_02", breath)
+
+func _add_clothing(color: Color) -> void:
+	# Shirt
+	_attach_box("spine_02", Vector3(0.38, 0.42, 0.24), Vector3(0, 0.12, 0), color)
+	# Belt / pants top
+	_attach_box("hips", Vector3(0.36, 0.22, 0.26), Vector3(0, 0.0, 0), color.darkened(0.35))
+	# Thighs
+	_attach_box("thigh_l", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
+	_attach_box("thigh_r", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
+	# Sleeves
+	_attach_box("upperarm_l", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
+	_attach_box("upperarm_r", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
+	# Boots
+	_attach_box("calf_l", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
+	_attach_box("calf_r", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
+
+func _attach_box(bone: String, size: Vector3, offset: Vector3, color: Color) -> void:
+	if _skeleton == null:
+		return
+	var i := _skeleton.find_bone(bone)
+	if i < 0:
+		return
+	var att := BoneAttachment3D.new()
+	att.bone_idx = i
+	att.bone_name = bone
+	_skeleton.add_child(att)
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.position = offset
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.9
+	mat.metallic = 0.05
+	mesh.material_override = mat
+	att.add_child(mesh)
