@@ -62,16 +62,17 @@ func _find_player_by_name(node: Node) -> CharacterBody3D:
 	return null
 
 func _joystick_center() -> Vector2:
+	# Anchor to bottom-left with margin so it's always inside the view
 	var vp := get_viewport().get_visible_rect().size
-	return vp + JOYSTICK_CENTER
+	return Vector2(JOYSTICK_RADIUS + 40, vp.y - JOYSTICK_RADIUS - 40)
 
 func _jump_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
-	return vp + JUMP_BTN_OFFSET
+	return Vector2(vp.x - BUTTON_RADIUS - 40, vp.y - BUTTON_RADIUS - 40)
 
 func _fire_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
-	return vp + FIRE_BTN_OFFSET
+	return Vector2(vp.x - BUTTON_RADIUS * 3 - 60, vp.y - BUTTON_RADIUS - 40)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
