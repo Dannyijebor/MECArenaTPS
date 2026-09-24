@@ -23,6 +23,13 @@ var _fire_touch_id := -1
 var _jump_touch_id := -1
 
 const C_BASE := Color(0.22, 0.74, 0.97, 0.28)
+
+var _wave: int = 1
+var _kills: int = 0
+
+func set_state(wave: int, kills: int) -> void:
+	_wave = wave
+	_kills = kills
 const C_BORDER := Color(0.22, 0.74, 0.97, 0.75)
 const C_KNOB := Color(0.22, 0.74, 0.97, 0.85)
 const C_JUMP := Color(0.22, 0.85, 0.42, 0.55)
