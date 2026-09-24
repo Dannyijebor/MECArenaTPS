@@ -21,6 +21,8 @@ var _look_last_pos := Vector2.ZERO
 
 var _fire_touch_id := -1
 var _jump_touch_id := -1
+var _reload_touch_id := -1
+var _switch_touch_id := -1
 
 const C_BASE := Color(0.22, 0.74, 0.97, 0.28)
 
@@ -62,6 +64,14 @@ func _fire_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
 	return Vector2(vp.x - BUTTON_RADIUS * 3 - 90, vp.y - BUTTON_RADIUS - 60)
 
+func _reload_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS - 60, vp.y - BUTTON_RADIUS * 3 - 90)
+
+func _switch_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS * 3 - 90, vp.y - BUTTON_RADIUS * 3 - 90)
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE and _player:
@@ -78,6 +88,16 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_jump_touch_id = event.index
 			if _player:
 				_player.touch_jump = true
+			return
+		if pos.distance_to(_reload_center()) < BUTTON_RADIUS + 14:
+			_reload_touch_id = event.index
+			if _player:
+				_player.call("_start_reload")
+			return
+		if pos.distance_to(_switch_center()) < BUTTON_RADIUS + 14:
+			_switch_touch_id = event.index
+			if _player:
+				_player.call("switch_weapon")
 			return
 
 		if pos.distance_to(_fire_center()) < BUTTON_RADIUS + 14:
@@ -105,6 +125,10 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_look_touch_id = -1
 		if event.index == _jump_touch_id:
 			_jump_touch_id = -1
+		if event.index == _reload_touch_id:
+			_reload_touch_id = -1
+		if event.index == _switch_touch_id:
+			_switch_touch_id = -1
 		if event.index == _fire_touch_id:
 			_fire_touch_id = -1
 			if _player:
@@ -187,5 +211,50 @@ func _draw() -> void:
 	draw_circle(fire, BUTTON_RADIUS, fire_color)
 	draw_arc(fire, BUTTON_RADIUS, 0, TAU, 64, C_FIRE_BORDER, 3.0, true)
 
+	_draw_weapon_hud(vp)
+
 func _process(_delta: float) -> void:
 	queue_redraw()
+
+
+func _draw_weapon_hud(vp: Vector2) -> void:
+	var font := ThemeDB.fallback_font
+
+	var wd_name := "RIFLE"
+	var cur_ammo := 30
+	var mag_size := 30
+	if _player != null and is_instance_valid(_player):
+		var wid: Variant = _player.get("current_weapon_id")
+		if wid != null:
+			wd_name = String(wid).to_upper()
+		var a: Variant = _player.get("ammo")
+		if a != null:
+			cur_ammo = int(a)
+	match wd_name:
+		"SMG":     mag_size = 40
+		"SHOTGUN": mag_size = 6
+		_:         mag_size = 30
+
+	var ammo_color := Color(1, 1, 1, 0.95)
+	if cur_ammo <= mag_size / 3:
+		ammo_color = Color(1.0, 0.45, 0.4, 0.95)
+	draw_string(font, Vector2(vp.x - 240, 120), wd_name, HORIZONTAL_ALIGNMENT_RIGHT, 200, 18, Color(0.7, 0.9, 1.0, 0.9))
+	draw_string(font, Vector2(vp.x - 240, 154), str(cur_ammo) + " / " + str(mag_size), HORIZONTAL_ALIGNMENT_RIGHT, 200, 26, ammo_color)
+
+	# Reload button
+	var rp := _reload_center()
+	var r_fill := Color(1.0, 0.7, 0.2, 0.55)
+	if _reload_touch_id != -1:
+		r_fill = Color(1.0, 0.7, 0.2, 0.95)
+	draw_circle(rp, BUTTON_RADIUS, r_fill)
+	draw_arc(rp, BUTTON_RADIUS, 0.0, TAU, 48, Color(1.0, 0.8, 0.3, 0.9), 3.0)
+	draw_string(font, rp + Vector2(-30, 8), "RELOAD", HORIZONTAL_ALIGNMENT_LEFT, 100, 16, Color.WHITE)
+
+	# Switch button
+	var sp := _switch_center()
+	var s_fill := Color(0.5, 0.6, 1.0, 0.55)
+	if _switch_touch_id != -1:
+		s_fill = Color(0.5, 0.6, 1.0, 0.95)
+	draw_circle(sp, BUTTON_RADIUS, s_fill)
+	draw_arc(sp, BUTTON_RADIUS, 0.0, TAU, 48, Color(0.7, 0.8, 1.0, 0.9), 3.0)
+	draw_string(font, sp + Vector2(-22, 8), "SWAP", HORIZONTAL_ALIGNMENT_LEFT, 100, 16, Color.WHITE)
