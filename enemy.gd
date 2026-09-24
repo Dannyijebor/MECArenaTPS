@@ -9,8 +9,8 @@ const CONTACT_DAMAGE := 10
 const CONTACT_COOLDOWN := 0.8
 const CONTACT_RANGE := 1.2
 
-const WALK_FREQ := 7.0
-const SWING_DEG := 38.0
+const WALK_FREQ := 3.2
+const SWING_DEG := 34.0
 const ARM_SWING_SCALE := 0.55
 const SWING_AXIS := Vector3(1, 0, 0)
 
