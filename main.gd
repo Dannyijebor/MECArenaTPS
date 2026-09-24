@@ -1,4 +1,5 @@
 extends Node3D
+const SFX := preload("res://sfx.gd")
 
 const FLOOR_SIZE := 40.0
 
@@ -161,6 +162,7 @@ func _build_wall(x: float, z: float, w: float, d: float, h: float, is_cover: boo
 	shape.size = Vector3(w, h, d)
 	col.shape = shape
 	body.add_child(col)
+	body.add_to_group("cover")
 	body.position = Vector3(x, h / 2.0, z)
 	add_child(body)
 
@@ -188,10 +190,12 @@ func _spawn_enemy_at(pos: Vector3, enemy_script: Script) -> void:
 	_enemies_alive += 1
 
 func _start_wave(n: int) -> void:
+	SFX.play("wave_start", -4.0)
 	_wave = n
 	_between_waves = false
 	var count := 3 + (n - 1) * 2
 	_spawn_wave_enemies(count)
+	_spawn_medkits(1 + int((n - 1) / 2))
 
 func _on_enemy_died() -> void:
 	_kills += 1
@@ -218,3 +222,15 @@ func _process(delta: float) -> void:
 	# Push state to UI
 	if _ui != null and _ui.has_method("set_state"):
 		_ui.call("set_state", _wave, _kills)
+
+
+func _spawn_medkits(count: int) -> void:
+	var script := load("res://medkit.gd")
+	for i in range(count):
+		var angle := randf() * TAU
+		var radius := 5.0 + randf() * 7.0
+		var pos := Vector3(cos(angle) * radius, 0.6, sin(angle) * radius)
+		var mk := Area3D.new()
+		mk.set_script(script)
+		mk.position = pos
+		add_child(mk)

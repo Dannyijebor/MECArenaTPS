@@ -1,4 +1,5 @@
 extends CharacterBody3D
+const SFX := preload("res://sfx.gd")
 
 signal died
 
@@ -13,6 +14,15 @@ const SHOOT_MIN_DIST := 4.0
 const SHOOT_COOLDOWN := 1.6
 const SHOOT_DAMAGE := 6
 const SHOOT_ACCURACY_DEG := 6.0
+const STRAFE_SPEED := 1.6
+const STRAFE_CHANGE_MIN := 1.2
+const STRAFE_CHANGE_MAX := 2.6
+const COVER_SEARCH_RADIUS := 9.0
+const COVER_HP_THRESHOLD := 1
+const COVER_HOLD_TIME := 1.8
+const DAMAGE_MEMORY_TIME := 2.5
+const FLANK_ARC_DEG := 35.0
+const ENEMY_PREFERRED_DIST := 7.0
 
 const WALK_FREQ := 3.2
 const SWING_DEG := 34.0
@@ -28,6 +38,15 @@ var _player: Node3D = null
 var _hit_flash := 0.0
 var _contact_cd := 0.0
 var _shoot_cd := 0.0
+enum AIState { APPROACH, COMBAT, COVER }
+var _ai_state: int = AIState.APPROACH
+var _strafe_dir: float = 1.0
+var _strafe_timer: float = 0.0
+var _flank_offset: float = 0.0
+var _cover_target: Vector3 = Vector3.ZERO
+var _cover_timer: float = 0.0
+var _recent_damage_timer: float = 0.0
+var _last_hp: int = 999
 var _body_root: Node3D = null
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
@@ -216,6 +235,8 @@ func _spawn_muzzle_flash() -> void:
 	t.timeout.connect(func(): if is_instance_valid(flash): flash.queue_free())
 
 func take_damage(amount: int) -> void:
+	SFX.play("hit", -4.0, randf_range(0.95, 1.08))
+	_recent_damage_timer = DAMAGE_MEMORY_TIME
 	hp -= amount
 	_hit_flash = 0.12
 	_flash_materials(true)
@@ -290,6 +311,7 @@ func _physics_process(delta: float) -> void:
 	if _body_root != null:
 		_body_root.position.z = recoil_offset
 
+	_tick_ai(delta)
 	move_and_slide()
 
 
@@ -308,6 +330,7 @@ func _has_los_to_player() -> bool:
 	return c == _player or (c is Node and c.is_in_group("player"))
 
 func _try_shoot_player() -> void:
+	SFX.play("enemy_shoot", -6.0, randf_range(0.9, 1.1))
 	if _player == null:
 		return
 	var from := global_position + Vector3(0, 1.4, 0)
@@ -368,3 +391,92 @@ func _tick_combat(delta: float) -> void:
 		return
 	_shoot_cd = SHOOT_COOLDOWN
 	_try_shoot_player()
+
+
+func _tick_ai(delta: float) -> void:
+	if _player == null or hp <= 0:
+		return
+
+	if hp < _last_hp:
+		_recent_damage_timer = DAMAGE_MEMORY_TIME
+	_last_hp = hp
+	if _recent_damage_timer > 0.0:
+		_recent_damage_timer -= delta
+
+	if _flank_offset == 0.0:
+		_flank_offset = deg_to_rad(randf_range(-FLANK_ARC_DEG, FLANK_ARC_DEG))
+
+	var to_player: Vector3 = _player.global_position - global_position
+	to_player.y = 0.0
+	var dist: float = to_player.length()
+	var dir: Vector3 = to_player.normalized() if dist > 0.01 else Vector3.FORWARD
+
+	# State selection
+	if _recent_damage_timer > 0.0 or hp <= COVER_HP_THRESHOLD:
+		_ai_state = AIState.COVER
+	elif dist < SHOOT_RANGE and _has_los_to_player():
+		_ai_state = AIState.COMBAT
+	else:
+		_ai_state = AIState.APPROACH
+
+	var move_dir := Vector3.ZERO
+	match _ai_state:
+		AIState.APPROACH:
+			var flank_dir: Vector3 = dir.rotated(Vector3.UP, _flank_offset)
+			move_dir = flank_dir
+			if dist < ENEMY_PREFERRED_DIST:
+				move_dir = -dir
+		AIState.COMBAT:
+			_strafe_timer -= delta
+			if _strafe_timer <= 0.0:
+				_strafe_dir *= -1.0
+				_strafe_timer = randf_range(STRAFE_CHANGE_MIN, STRAFE_CHANGE_MAX)
+			var perp: Vector3 = dir.rotated(Vector3.UP, PI * 0.5) * _strafe_dir
+			var dist_corr := 0.0
+			if dist < ENEMY_PREFERRED_DIST - 2.0:
+				dist_corr = -0.6
+			elif dist > ENEMY_PREFERRED_DIST + 2.0:
+				dist_corr = 0.6
+			var combined: Vector3 = perp + dir * dist_corr
+			move_dir = combined.normalized() if combined.length() > 0.01 else Vector3.ZERO
+		AIState.COVER:
+			_cover_timer -= delta
+			if _cover_timer <= 0.0 or _cover_target == Vector3.ZERO:
+				_cover_target = _find_cover_point()
+				_cover_timer = COVER_HOLD_TIME
+			if _cover_target == Vector3.INF or _cover_target == Vector3.ZERO:
+				move_dir = -dir
+			else:
+				var to_cover: Vector3 = _cover_target - global_position
+				to_cover.y = 0.0
+				move_dir = Vector3.ZERO if to_cover.length() < 0.6 else to_cover.normalized()
+
+	var speed: float = SPEED if _ai_state == AIState.APPROACH else STRAFE_SPEED
+	velocity.x = move_dir.x * speed
+	velocity.z = move_dir.z * speed
+
+func _find_cover_point() -> Vector3:
+	var covers = get_tree().get_nodes_in_group("cover")
+	if covers.is_empty() or _player == null:
+		return Vector3.INF
+	var player_pos: Vector3 = _player.global_position
+	var best: Vector3 = Vector3.INF
+	var best_score := -1.0e20
+	for node in covers:
+		if not (node is Node3D):
+			continue
+		var cover_pos: Vector3 = (node as Node3D).global_position
+		var d_self: float = global_position.distance_to(cover_pos)
+		if d_self > COVER_SEARCH_RADIUS:
+			continue
+		var away: Vector3 = (cover_pos - player_pos)
+		away.y = 0.0
+		if away.length() < 0.01:
+			continue
+		var hide: Vector3 = cover_pos + away.normalized() * 1.6
+		hide.y = global_position.y
+		var score: float = -global_position.distance_to(hide) - d_self * 0.2
+		if score > best_score:
+			best_score = score
+			best = hide
+	return best

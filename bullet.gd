@@ -2,13 +2,15 @@ extends Area3D
 
 const SPEED := 45.0
 const LIFETIME := 2.0
-const DAMAGE := 1
+const DAMAGE := 5
+var _damage: int = DAMAGE
 
 var direction := Vector3.FORWARD
 var _age := 0.0
 
-func setup(dir: Vector3) -> void:
+func setup(dir: Vector3, dmg: int = DAMAGE) -> void:
 	direction = dir.normalized()
+	_damage = dmg
 
 func _ready() -> void:
 	add_to_group("bullet")
@@ -48,5 +50,5 @@ func _physics_process(delta: float) -> void:
 
 func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("enemy") and body.has_method("take_damage"):
-		body.take_damage(DAMAGE)
+		body.take_damage(_damage)
 		queue_free()

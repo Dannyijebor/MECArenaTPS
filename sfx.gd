@@ -1,0 +1,29 @@
+extends RefCounted
+
+const _PATHS := {
+	"shoot":       "res://sounds/shoot.wav",
+	"enemy_shoot": "res://sounds/enemy_shoot.wav",
+	"hit":         "res://sounds/hit.wav",
+	"hurt":        "res://sounds/hurt.wav",
+	"reload":      "res://sounds/reload.wav",
+	"wave_start":  "res://sounds/wave_start.wav",
+	"empty":       "res://sounds/empty.wav",
+}
+
+static func play(sound_name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	var path: String = _PATHS.get(sound_name, "")
+	if path == "":
+		return
+	var stream: AudioStream = load(path)
+	if stream == null:
+		return
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return
+	var player: AudioStreamPlayer = AudioStreamPlayer.new()
+	player.stream = stream
+	player.volume_db = volume_db
+	player.pitch_scale = clampf(pitch, 0.5, 2.0)
+	tree.root.add_child(player)
+	player.play()
+	player.finished.connect(player.queue_free)
