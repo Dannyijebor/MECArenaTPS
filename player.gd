@@ -6,7 +6,7 @@ signal hp_changed(new_hp: int)
 const SPEED := 5.5
 const JUMP_VELOCITY := 6.5
 const GRAVITY := 16.0
-const LOOK_SENSITIVITY := 0.15
+const LOOK_SENSITIVITY := 0.05
 const PITCH_MIN := -60.0
 const PITCH_MAX := 20.0
 

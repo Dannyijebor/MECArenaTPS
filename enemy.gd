@@ -47,6 +47,8 @@ func _build_visual() -> void:
 			var target_height: float = 1.8
 			var raw_height: float = max(aabb.size.y, 0.001)
 			var s: float = target_height / raw_height
+			# Safety: clamp scale so a bad AABB can't produce a 1800x giant
+			s = clamp(s, 0.01, 100.0)
 			_body_root.scale = Vector3(s, s, s)
 			_body_root.position.y = -aabb.position.y * s
 			add_child(_body_root)
@@ -65,15 +67,30 @@ func _build_visual() -> void:
 func _compute_aabb(node: Node3D) -> AABB:
 	var result: AABB = AABB()
 	var first: bool = true
-	for child in node.get_children():
-		if child is MeshInstance3D:
-			var mi := child as MeshInstance3D
-			var local_aabb: AABB = mi.get_aabb()
-			if first:
-				result = local_aabb
-				first = false
-			else:
-				result = result.merge(local_aabb)
+	var stack: Array = [node]
+	while stack.size() > 0:
+		var current = stack.pop_back()
+		if current is MeshInstance3D:
+			var mi := current as MeshInstance3D
+			var m: Mesh = mi.mesh
+			if m != null:
+				var mesh_aabb: AABB = m.get_aabb()
+				var xform: Transform3D = mi.global_transform
+				# Convert the mesh AABB into a set of 8 world-space points, rebuild
+				var min_p: Vector3 = mesh_aabb.position
+				var max_p: Vector3 = mesh_aabb.position + mesh_aabb.size
+				for xi in range(2):
+					for yi in range(2):
+						for zi in range(2):
+							var corner: Vector3 = Vector3(min_p.x if xi == 0 else max_p.x, min_p.y if yi == 0 else max_p.y, min_p.z if zi == 0 else max_p.z)
+							var world: Vector3 = xform * corner
+							if first:
+								result = AABB(world, Vector3.ZERO)
+								first = false
+							else:
+								result = result.expand(world)
+		for child in current.get_children():
+			stack.push_back(child)
 	return result
 
 func _find_skeleton() -> void:
