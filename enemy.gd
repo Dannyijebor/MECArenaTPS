@@ -80,7 +80,7 @@ func _compute_aabb(node: Node3D) -> AABB:
 			var m: Mesh = mi.mesh
 			if m != null:
 				var mesh_aabb: AABB = m.get_aabb()
-				var xform: Transform3D = mi.global_transform
+				var xform: Transform3D = mi.transform if not mi.is_inside_tree() else mi.global_transform
 				var min_p: Vector3 = mesh_aabb.position
 				var max_p: Vector3 = mesh_aabb.position + mesh_aabb.size
 				for xi in range(2):
@@ -192,10 +192,10 @@ func _apply_pose(speed: float) -> void:
 	_set_bone_local("calf_r", -max(0.0, -c) * SWING_DEG * 0.7)
 	# Arms: static aim pose + tiny sway
 	var sway := sin(_walk_phase * 0.5) * 3.0
-	_set_bone_local("upperarm_l", AIM_ARM_PITCH - 10.0 + sway, 0.0, -25.0)
-	_set_bone_local("upperarm_r", AIM_ARM_PITCH + sway, 0.0, 25.0)
-	_set_bone_local("lowerarm_l", AIM_ELBOW_BEND - 15.0, 0.0, 0.0)
-	_set_bone_local("lowerarm_r", AIM_ELBOW_BEND, 0.0, 0.0)
+	_set_bone_local("upperarm_l", 0.0, 72.0 + sway, -12.0)
+	_set_bone_local("upperarm_r", 0.0, -72.0 + sway, 12.0)
+	_set_bone_local("lowerarm_l", 0.0, 55.0, 0.0)
+	_set_bone_local("lowerarm_r", 0.0, -55.0, 0.0)
 	_set_bone_local("hand_l", 0.0, 0.0, AIM_HAND_TWIST)
 	_set_bone_local("hand_r", 0.0, 0.0, -AIM_HAND_TWIST)
 
