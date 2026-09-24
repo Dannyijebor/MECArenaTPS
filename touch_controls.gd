@@ -38,13 +38,19 @@ const C_FIRE := Color(0.97, 0.45, 0.45, 0.55)
 const C_FIRE_BORDER := Color(0.97, 0.45, 0.45, 0.9)
 
 func _ready() -> void:
-	# Make sure we cover the whole screen
-	anchors_preset = Control.PRESET_FULL_RECT
+	# Force the Control to fill the entire viewport
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	size = get_viewport().get_visible_rect().size
 	mouse_filter = Control.MOUSE_FILTER_PASS
+	# Re-size whenever the viewport changes (rotation, resize)
+	get_viewport().size_changed.connect(_on_viewport_resized)
 	await get_tree().process_frame
 	_player = get_tree().get_first_node_in_group("player")
 	if _player == null:
 		_player = _find_player_by_name(get_tree().root)
+
+func _on_viewport_resized() -> void:
+	size = get_viewport().get_visible_rect().size
 
 func _find_player_by_name(node: Node) -> CharacterBody3D:
 	for child in node.get_children():
