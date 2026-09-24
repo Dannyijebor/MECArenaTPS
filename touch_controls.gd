@@ -121,12 +121,16 @@ func _draw() -> void:
 	var c := vp * 0.5
 
 	# ── HP bar (top-left)
-	var hp := 0.0
-	var max_hp := 100.0
+	var hp: float = 0.0
+	var max_hp: float = 100.0
 	if _player != null and is_instance_valid(_player):
-		hp = float(_player.hp)
-		max_hp = float(_player.max_hp)
-	var hp_ratio := clamp(hp / max_hp, 0.0, 1.0)
+		var hp_v: Variant = _player.get("hp")
+		if hp_v != null:
+			hp = float(hp_v)
+		var max_v: Variant = _player.get("max_hp")
+		if max_v != null:
+			max_hp = float(max_v)
+	var hp_ratio: float = clamp(hp / max_hp, 0.0, 1.0)
 	var bar_w := 220.0
 	var bar_h := 22.0
 	var bar_pos := Vector2(30, 30)
@@ -139,7 +143,12 @@ func _draw() -> void:
 	draw_string(font, Vector2(vp.x - 230, 82), "WAVE " + str(_wave), HORIZONTAL_ALIGNMENT_RIGHT, 200, 20, Color(0.3, 0.9, 1.0))
 
 	# ── Death overlay
-	if _player != null and is_instance_valid(_player) and _player.hp <= 0:
+	var hp_check: float = 1.0
+	if _player != null and is_instance_valid(_player):
+		var hv: Variant = _player.get("hp")
+		if hv != null:
+			hp_check = float(hv)
+	if hp_check <= 0.0:
 		draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.55))
 		draw_string(font, Vector2(0, vp.y * 0.5 - 20), "YOU DIED", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 48, Color(1.0, 0.3, 0.3))
 		draw_string(font, Vector2(0, vp.y * 0.5 + 40), "Respawning...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 24, Color(1.0, 1.0, 1.0, 0.8))
