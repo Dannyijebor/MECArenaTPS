@@ -86,6 +86,9 @@ func _build_player() -> void:
 	camera.rotation_degrees = Vector3(-8, 0, 0)
 	camera.current = true
 	cam_pivot.add_child(camera)
+	print("    _build_player: about to add player to scene, player=", player)
+	add_child(player)
+	print("    _build_player: player added, parent children=", get_child_count())
 
 func _build_lighting() -> void:
 	var sun := DirectionalLight3D.new()
