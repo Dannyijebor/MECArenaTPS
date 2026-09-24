@@ -10,12 +10,16 @@ var hp := MAX_HP
 var _player: Node3D = null
 var _hit_flash := 0.0
 
-@onready var _body_mesh: MeshInstance3D = $BodyMesh
+var _body_mesh: MeshInstance3D = null
 
 func _ready() -> void:
 	add_to_group("enemy")
-	await get_tree().process_frame
-	_player = get_tree().get_first_node_in_group("player")
+	# Find the mesh child (added by main.gd after set_script)
+	for child in get_children():
+		if child is MeshInstance3D:
+			_body_mesh = child
+			break
+	_player = get_tree().get_first_node_in_group("player") as Node3D
 	_update_color()
 
 func _update_color() -> void:
