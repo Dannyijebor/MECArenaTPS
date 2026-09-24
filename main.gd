@@ -17,6 +17,7 @@ func _ready() -> void:
 	_build_floor()
 	_build_player()
 	_build_lighting()
+	_build_environment_obstacles()
 	_build_touch_controls()
 	# Wait a frame so UI is in the tree, then cache it
 	await get_tree().process_frame
@@ -113,11 +114,61 @@ func _build_touch_controls() -> void:
 	canvas.add_child(controls)
 	add_child(canvas)
 
+func _build_environment_obstacles() -> void:
+	# Cover walls: {x, z, width, depth, height}
+	var walls := [
+		{"x": -12, "z": -12, "w": 1.0, "d": 6.0, "h": 2.5},
+		{"x": 12, "z": -12, "w": 1.0, "d": 6.0, "h": 2.5},
+		{"x": -12, "z": 12, "w": 1.0, "d": 6.0, "h": 2.5},
+		{"x": 12, "z": 12, "w": 1.0, "d": 6.0, "h": 2.5},
+		{"x": 0, "z": -18, "w": 8.0, "d": 1.0, "h": 2.2},
+		{"x": 0, "z": 18, "w": 8.0, "d": 1.0, "h": 2.2},
+	]
+	for wall in walls:
+		_build_wall(wall.x, wall.z, wall.w, wall.d, wall.h)
+
+	# Low cover boxes (crouch-height, h=1.0)
+	var cover := [
+		{"x": -6, "z": -6, "w": 2.0, "d": 2.0, "h": 1.0},
+		{"x": 6, "z": -6, "w": 2.0, "d": 2.0, "h": 1.0},
+		{"x": -6, "z": 6, "w": 2.0, "d": 2.0, "h": 1.0},
+		{"x": 6, "z": 6, "w": 2.0, "d": 2.0, "h": 1.0},
+		{"x": 0, "z": 0, "w": 1.6, "d": 1.6, "h": 1.2},
+	]
+	for c in cover:
+		_build_wall(c.x, c.z, c.w, c.d, c.h, true)
+
+func _build_wall(x: float, z: float, w: float, d: float, h: float, is_cover: bool = false) -> void:
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(w, h, d)
+	mesh.mesh = box
+	var mat := StandardMaterial3D.new()
+	if is_cover:
+		mat.albedo_color = Color(0.22, 0.24, 0.30)
+		mat.roughness = 0.85
+	else:
+		mat.albedo_color = Color(0.18, 0.20, 0.26)
+		mat.roughness = 0.75
+		mat.metallic = 0.3
+	mesh.material_override = mat
+	mesh.position = Vector3(x, h / 2.0, z)
+	add_child(mesh)
+
+	var body := StaticBody3D.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(w, h, d)
+	col.shape = shape
+	body.add_child(col)
+	body.position = Vector3(x, h / 2.0, z)
+	add_child(body)
+
 func _spawn_wave_enemies(count: int) -> void:
 	var enemy_script = load("res://enemy.gd")
 	for i in range(count):
 		var angle := (float(i) / float(count)) * TAU + randf() * 0.4
-		var radius := 8.0 + randf() * 5.0
+		var radius := 14.0 + randf() * 4.0
 		var pos := Vector3(cos(angle) * radius, 1.0, sin(angle) * radius)
 		_spawn_enemy_at(pos, enemy_script)
 
