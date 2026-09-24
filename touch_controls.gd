@@ -1,11 +1,8 @@
-extends CanvasLayer
+extends Control
 
 # ─────────────────────────────────────────────
 # Touch controls — landscape layout
-#
-#   Bottom-left:  MOVE joystick
-#   Right 60%:    LOOK drag (no visual)
-#   Bottom-right: JUMP + FIRE buttons
+# Attached to a Control inside a CanvasLayer.
 # ─────────────────────────────────────────────
 
 const JOYSTICK_CENTER := Vector2(180, -160)
@@ -41,6 +38,9 @@ const C_FIRE := Color(0.97, 0.45, 0.45, 0.55)
 const C_FIRE_BORDER := Color(0.97, 0.45, 0.45, 0.9)
 
 func _ready() -> void:
+	# Make sure we cover the whole screen
+	anchors_preset = Control.PRESET_FULL_RECT
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	await get_tree().process_frame
 	_player = get_tree().get_first_node_in_group("player")
 	if _player == null:
@@ -76,19 +76,16 @@ func _input(event: InputEvent) -> void:
 func _handle_touch(event: InputEventScreenTouch) -> void:
 	var pos := event.position
 	if event.pressed:
-		# Jump button?
 		if pos.distance_to(_jump_center()) < BUTTON_RADIUS + 12:
 			_jump_pressed = true
 			if _player:
 				_player.touch_jump = true
 			return
 
-		# Fire button?
 		if pos.distance_to(_fire_center()) < BUTTON_RADIUS + 12:
 			_fire_pressed = true
 			return
 
-		# Move joystick zone? (bottom-left 40% of screen)
 		var vp := get_viewport().get_visible_rect().size
 		if pos.x < vp.x * 0.4 and pos.y > vp.y * 0.5:
 			_move_touch_id = event.index
@@ -96,12 +93,10 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_move_knob_pos = pos
 			return
 
-		# Otherwise → look drag
 		if _look_touch_id == -1:
 			_look_touch_id = event.index
 			_look_last_pos = pos
 	else:
-		# Release
 		if event.index == _move_touch_id:
 			_move_touch_id = -1
 			if _player:
@@ -119,7 +114,6 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 			offset = offset.normalized() * JOYSTICK_RADIUS
 		_move_knob_pos = _move_center + offset
 		if _player:
-			# Godot uses -Z as forward; joystick up = -Y in screen = forward
 			_player.touch_move = Vector2(offset.x / JOYSTICK_RADIUS, offset.y / JOYSTICK_RADIUS)
 	elif event.index == _look_touch_id:
 		var delta_look := pos - _look_last_pos
@@ -128,19 +122,16 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 			_player.touch_look += delta_look
 
 func _draw() -> void:
-	# Move joystick
 	var base := _move_center if _move_touch_id != -1 else _joystick_center()
 	draw_circle(base, JOYSTICK_RADIUS, C_BASE)
 	draw_arc(base, JOYSTICK_RADIUS, 0, TAU, 64, C_BORDER, 3.0, true)
 	var knob := _move_knob_pos if _move_touch_id != -1 else base
 	draw_circle(knob, JOYSTICK_KNOB_RADIUS, C_KNOB)
 
-	# Jump button
 	var jump := _jump_center()
 	draw_circle(jump, BUTTON_RADIUS, C_JUMP)
 	draw_arc(jump, BUTTON_RADIUS, 0, TAU, 64, C_JUMP_BORDER, 3.0, true)
 
-	# Fire button
 	var fire := _fire_center()
 	draw_circle(fire, BUTTON_RADIUS, C_FIRE)
 	draw_arc(fire, BUTTON_RADIUS, 0, TAU, 64, C_FIRE_BORDER, 3.0, true)

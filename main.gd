@@ -88,7 +88,10 @@ func _build_lighting() -> void:
 
 func _build_touch_controls() -> void:
 	var controls_script = load("res://touch_controls.gd")
-	var controls := CanvasLayer.new()
+	var canvas := CanvasLayer.new()
+	canvas.name = "TouchControlsLayer"
+	var controls := Control.new()
 	controls.name = "TouchControls"
 	controls.set_script(controls_script)
-	add_child(controls)
+	canvas.add_child(controls)
+	add_child(canvas)
