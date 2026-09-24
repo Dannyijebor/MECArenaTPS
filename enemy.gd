@@ -59,8 +59,8 @@ func _die() -> void:
 		burst.scale_amount_min = 0.08
 		burst.scale_amount_max = 0.18
 		burst.color = Color(1.0, 0.3, 0.3)
-		burst.global_position = global_position + Vector3(0, 0.8, 0)
 		parent.add_child(burst)
+		burst.global_position = global_position + Vector3(0, 0.8, 0)
 		var timer := get_tree().create_timer(1.2)
 		timer.timeout.connect(func(): if is_instance_valid(burst): burst.queue_free())
 	queue_free()
