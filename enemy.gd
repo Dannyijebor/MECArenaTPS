@@ -5,16 +5,18 @@ signal died
 const SPEED := 2.2
 const GRAVITY := 16.0
 const MAX_HP := 3
+const CONTACT_DAMAGE := 10
+const CONTACT_COOLDOWN := 0.8
+const CONTACT_RANGE := 1.2
 
 var hp := MAX_HP
 var _player: Node3D = null
 var _hit_flash := 0.0
-
+var _contact_cd := 0.0
 var _body_mesh: MeshInstance3D = null
 
 func _ready() -> void:
 	add_to_group("enemy")
-	# Find the mesh child (added by main.gd after set_script)
 	for child in get_children():
 		if child is MeshInstance3D:
 			_body_mesh = child
@@ -42,7 +44,6 @@ func take_damage(amount: int) -> void:
 
 func _die() -> void:
 	emit_signal("died")
-	# Particle burst
 	var parent := get_parent()
 	if parent != null:
 		var burst := CPUParticles3D.new()
@@ -70,20 +71,26 @@ func _physics_process(delta: float) -> void:
 		_hit_flash -= delta
 		if _hit_flash <= 0.0:
 			_update_color()
+	if _contact_cd > 0.0:
+		_contact_cd -= delta
 
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
 
-	# Walk toward the player horizontally
 	if _player != null and is_instance_valid(_player):
 		var to_player := _player.global_position - global_position
 		to_player.y = 0.0
 		var dist := to_player.length()
+
+		# Contact damage
+		if dist < CONTACT_RANGE and _contact_cd <= 0.0 and _player.has_method("take_damage"):
+			_player.call("take_damage", CONTACT_DAMAGE)
+			_contact_cd = CONTACT_COOLDOWN
+
 		if dist > 0.6:
 			var dir := to_player.normalized()
 			velocity.x = dir.x * SPEED
 			velocity.z = dir.z * SPEED
-			# Face the player
 			var target_yaw := atan2(dir.x, dir.z)
 			rotation.y = lerp_angle(rotation.y, target_yaw, 0.15)
 		else:

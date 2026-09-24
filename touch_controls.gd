@@ -119,6 +119,31 @@ func _draw() -> void:
 	# Crosshair in center
 	var vp := get_viewport().get_visible_rect().size
 	var c := vp * 0.5
+
+	# ── HP bar (top-left)
+	var hp := 0.0
+	var max_hp := 100.0
+	if _player != null and is_instance_valid(_player):
+		hp = float(_player.hp)
+		max_hp = float(_player.max_hp)
+	var hp_ratio := clamp(hp / max_hp, 0.0, 1.0)
+	var bar_w := 220.0
+	var bar_h := 22.0
+	var bar_pos := Vector2(30, 30)
+	draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.0, 0.0, 0.0, 0.55))
+	draw_rect(Rect2(bar_pos + Vector2(2, 2), Vector2((bar_w - 4) * hp_ratio, bar_h - 4)), Color(0.94, 0.27, 0.27, 1.0))
+
+	# ── KILLS + WAVE (top-right)
+	var font := ThemeDB.fallback_font
+	draw_string(font, Vector2(vp.x - 230, 52), "KILLS " + str(_kills), HORIZONTAL_ALIGNMENT_RIGHT, 200, 24, Color.WHITE)
+	draw_string(font, Vector2(vp.x - 230, 82), "WAVE " + str(_wave), HORIZONTAL_ALIGNMENT_RIGHT, 200, 20, Color(0.3, 0.9, 1.0))
+
+	# ── Death overlay
+	if _player != null and is_instance_valid(_player) and _player.hp <= 0:
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.0, 0.0, 0.55))
+		draw_string(font, Vector2(0, vp.y * 0.5 - 20), "YOU DIED", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 48, Color(1.0, 0.3, 0.3))
+		draw_string(font, Vector2(0, vp.y * 0.5 + 40), "Respawning...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 24, Color(1.0, 1.0, 1.0, 0.8))
+
 	draw_circle(c, 4.0, C_CROSSHAIR)
 	draw_line(c + Vector2(-14, 0), c + Vector2(-4, 0), C_CROSSHAIR, 2.0)
 	draw_line(c + Vector2(4, 0), c + Vector2(14, 0), C_CROSSHAIR, 2.0)

@@ -1,29 +1,27 @@
 extends Node3D
 
-# ─────────────────────────────────────────────
-# Main game scene.
-# Builds the environment, the player, the enemies,
-# the HUD, and the touch controls.
-# Acts as the game_manager for score/hp events.
-# ─────────────────────────────────────────────
-
 const FLOOR_SIZE := 40.0
-const ENEMY_COUNT := 5
 
-var _hud_kills: Label = null
-var _hud_hp: Label = null
+# Wave system
+var _wave := 0
 var _kills := 0
-var _player: CharacterBody3D = null
+var _enemies_alive := 0
+var _wave_cooldown := 0.0
+var _between_waves := false
+
+# UI reference
+var _ui: Node = null
 
 func _ready() -> void:
-	add_to_group("game_manager")
 	_build_environment()
 	_build_floor()
 	_build_player()
 	_build_lighting()
-	_build_enemies()
-	_build_hud()
 	_build_touch_controls()
+	# Wait a frame so UI is in the tree, then cache it
+	await get_tree().process_frame
+	_ui = get_node_or_null("TouchControlsLayer/TouchControls")
+	_start_wave(1)
 
 func _build_environment() -> void:
 	var env := WorldEnvironment.new()
@@ -96,71 +94,14 @@ func _build_player() -> void:
 	cam_pivot.add_child(camera)
 
 	add_child(player)
-	_player = player
+	# Connect respawn on death
+	player.connect("died", Callable(self, "_on_player_died"))
 
 func _build_lighting() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45, -30, 0)
 	sun.light_energy = 1.2
 	add_child(sun)
-
-func _build_enemies() -> void:
-	var enemy_script = load("res://enemy.gd")
-	for i in range(ENEMY_COUNT):
-		var enemy := CharacterBody3D.new()
-		enemy.set_script(enemy_script)
-		var angle := (float(i) / ENEMY_COUNT) * TAU
-		var radius := 10.0 + randf() * 5.0
-		enemy.position = Vector3(cos(angle) * radius, 1.0, sin(angle) * radius)
-
-		var mesh := MeshInstance3D.new()
-		mesh.name = "MeshInstance3D"
-		var capsule := CapsuleMesh.new()
-		capsule.radius = 0.4
-		capsule.height = 1.6
-		mesh.mesh = capsule
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.9, 0.2, 0.2)
-		mat.emission_enabled = true
-		mat.emission = Color(0.5, 0.05, 0.05)
-		mat.emission_energy_multiplier = 0.6
-		mesh.material_override = mat
-		mesh.position = Vector3(0, 0.8, 0)
-		enemy.add_child(mesh)
-
-		var col := CollisionShape3D.new()
-		var shape := CapsuleShape3D.new()
-		shape.radius = 0.4
-		shape.height = 1.6
-		col.shape = shape
-		col.position = Vector3(0, 0.8, 0)
-		enemy.add_child(col)
-
-		add_child(enemy)
-
-func _build_hud() -> void:
-	var canvas := CanvasLayer.new()
-	canvas.name = "HUDLayer"
-
-	_hud_kills = Label.new()
-	_hud_kills.text = "KILLS: 0"
-	_hud_kills.add_theme_font_size_override("font_size", 28)
-	_hud_kills.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
-	_hud_kills.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_hud_kills.add_theme_constant_override("outline_size", 6)
-	_hud_kills.position = Vector2(30, 20)
-	canvas.add_child(_hud_kills)
-
-	_hud_hp = Label.new()
-	_hud_hp.text = "HP: 100"
-	_hud_hp.add_theme_font_size_override("font_size", 22)
-	_hud_hp.add_theme_color_override("font_color", Color(0.4, 0.9, 1.0))
-	_hud_hp.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_hud_hp.add_theme_constant_override("outline_size", 6)
-	_hud_hp.position = Vector2(30, 60)
-	canvas.add_child(_hud_hp)
-
-	add_child(canvas)
 
 func _build_touch_controls() -> void:
 	var controls_script = load("res://touch_controls.gd")
@@ -172,51 +113,67 @@ func _build_touch_controls() -> void:
 	canvas.add_child(controls)
 	add_child(canvas)
 
-# ─────────────────────────────────────────────
-# Game manager callbacks (called via group)
-# ─────────────────────────────────────────────
-
-func on_enemy_killed(_pos: Vector3) -> void:
-	_kills += 1
-	if _hud_kills:
-		_hud_kills.text = "KILLS: " + str(_kills)
-	# Respawn a new enemy after a short delay so the arena stays active
-	get_tree().create_timer(2.0).timeout.connect(_spawn_one_enemy)
-
-func _spawn_one_enemy() -> void:
+func _spawn_wave_enemies(count: int) -> void:
 	var enemy_script = load("res://enemy.gd")
-	var enemy := CharacterBody3D.new()
-	enemy.set_script(enemy_script)
-	var angle := randf() * TAU
-	var radius := 14.0 + randf() * 4.0
-	enemy.position = Vector3(cos(angle) * radius, 1.0, sin(angle) * radius)
+	for i in range(count):
+		var angle := (float(i) / float(count)) * TAU + randf() * 0.4
+		var radius := 8.0 + randf() * 5.0
+		var pos := Vector3(cos(angle) * radius, 1.0, sin(angle) * radius)
+		_spawn_enemy_at(pos, enemy_script)
 
+func _spawn_enemy_at(pos: Vector3, enemy_script: Script) -> void:
+	var e := CharacterBody3D.new()
+	e.set_script(enemy_script)
+	e.position = pos
 	var mesh := MeshInstance3D.new()
-	mesh.name = "MeshInstance3D"
 	var capsule := CapsuleMesh.new()
 	capsule.radius = 0.4
 	capsule.height = 1.6
 	mesh.mesh = capsule
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.2, 0.2)
-	mat.emission_enabled = true
-	mat.emission = Color(0.5, 0.05, 0.05)
-	mat.emission_energy_multiplier = 0.6
+	mat.albedo_color = Color(0.9, 0.2, 0.15)
 	mesh.material_override = mat
 	mesh.position = Vector3(0, 0.8, 0)
-	enemy.add_child(mesh)
-
+	e.add_child(mesh)
 	var col := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.4
 	shape.height = 1.6
 	col.shape = shape
 	col.position = Vector3(0, 0.8, 0)
-	enemy.add_child(col)
+	e.add_child(col)
+	add_child(e)
+	e.connect("died", Callable(self, "_on_enemy_died"))
+	_enemies_alive += 1
 
-	add_child(enemy)
+func _start_wave(n: int) -> void:
+	_wave = n
+	_between_waves = false
+	var count := 3 + (n - 1) * 2
+	_spawn_wave_enemies(count)
 
-func on_player_died() -> void:
-	if _hud_hp:
-		_hud_hp.text = "HP: 0 — YOU DIED"
-		_hud_hp.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
+func _on_enemy_died() -> void:
+	_kills += 1
+	_enemies_alive -= 1
+	if _enemies_alive <= 0 and not _between_waves:
+		_between_waves = true
+		_wave_cooldown = 2.5
+
+func _on_player_died() -> void:
+	# Freeze input briefly, then respawn
+	var t := get_tree().create_timer(2.0)
+	t.timeout.connect(func(): _respawn_player())
+
+func _respawn_player() -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player != null and player.has_method("respawn"):
+		player.call("respawn")
+
+func _process(delta: float) -> void:
+	if _between_waves and _wave_cooldown > 0.0:
+		_wave_cooldown -= delta
+		if _wave_cooldown <= 0.0:
+			_start_wave(_wave + 1)
+	# Push state to UI
+	if _ui != null and _ui.has_method("set_state"):
+		_ui.call("set_state", _wave, _kills)
