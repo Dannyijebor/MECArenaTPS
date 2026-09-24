@@ -8,6 +8,11 @@ const MAX_HP := 3
 const CONTACT_DAMAGE := 10
 const CONTACT_COOLDOWN := 0.8
 const CONTACT_RANGE := 1.2
+const SHOOT_RANGE := 18.0
+const SHOOT_MIN_DIST := 4.0
+const SHOOT_COOLDOWN := 1.6
+const SHOOT_DAMAGE := 6
+const SHOOT_ACCURACY_DEG := 6.0
 
 const WALK_FREQ := 3.2
 const SWING_DEG := 34.0
@@ -22,6 +27,7 @@ var hp := MAX_HP
 var _player: Node3D = null
 var _hit_flash := 0.0
 var _contact_cd := 0.0
+var _shoot_cd := 0.0
 var _body_root: Node3D = null
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
@@ -241,6 +247,7 @@ func _die() -> void:
 	queue_free()
 
 func _physics_process(delta: float) -> void:
+	_tick_combat(delta)
 	if _hit_flash > 0.0:
 		_hit_flash -= delta
 		if _hit_flash <= 0.0:
@@ -284,3 +291,80 @@ func _physics_process(delta: float) -> void:
 		_body_root.position.z = recoil_offset
 
 	move_and_slide()
+
+
+func _has_los_to_player() -> bool:
+	if _player == null:
+		return false
+	var from := global_position + Vector3(0, 1.4, 0)
+	var to := _player.global_position + Vector3(0, 1.0, 0)
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.exclude = [self.get_rid()]
+	var hit := space.intersect_ray(q)
+	if hit.is_empty():
+		return false
+	var c = hit.collider
+	return c == _player or (c is Node and c.is_in_group("player"))
+
+func _try_shoot_player() -> void:
+	if _player == null:
+		return
+	var from := global_position + Vector3(0, 1.4, 0)
+	var to := _player.global_position + Vector3(0, 1.0, 0)
+	var dir := (to - from).normalized()
+	var spread := deg_to_rad(SHOOT_ACCURACY_DEG)
+	dir = dir.rotated(Vector3.UP, randf_range(-spread, spread))
+	dir = dir.rotated(Vector3.RIGHT, randf_range(-spread, spread))
+	var ray_end := from + dir * SHOOT_RANGE * 1.5
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(from, ray_end)
+	q.exclude = [self.get_rid()]
+	var hit := space.intersect_ray(q)
+	var impact: Vector3 = hit.position if not hit.is_empty() else ray_end
+	_spawn_muzzle_flash()
+	_spawn_tracer(from, impact)
+	if hit.is_empty():
+		return
+	var c = hit.collider
+	if c == _player or (c is Node and c.is_in_group("player")):
+		if c.has_method("take_damage"):
+			c.call("take_damage", SHOOT_DAMAGE)
+
+func _spawn_tracer(from: Vector3, to: Vector3) -> void:
+	var dist := from.distance_to(to)
+	if dist < 0.1:
+		return
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.025, 0.025, dist)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.85, 0.4)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.9, 0.4)
+	mat.emission_energy_multiplier = 3.0
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = mat
+	get_tree().current_scene.add_child(mi)
+	mi.global_position = (from + to) * 0.5
+	mi.look_at(to, Vector3.UP)
+	var t := get_tree().create_timer(0.07)
+	t.timeout.connect(func() -> void:
+		if is_instance_valid(mi):
+			mi.queue_free()
+	)
+
+func _tick_combat(delta: float) -> void:
+	if _player == null or hp <= 0:
+		return
+	_shoot_cd -= delta
+	if _shoot_cd > 0.0:
+		return
+	var d := global_position.distance_to(_player.global_position)
+	if d < SHOOT_MIN_DIST or d > SHOOT_RANGE:
+		return
+	if not _has_los_to_player():
+		return
+	_shoot_cd = SHOOT_COOLDOWN
+	_try_shoot_player()

@@ -15,12 +15,16 @@ const AUTO_AIM_ANGLE := 12.0
 const AUTO_AIM_RANGE := 40.0
 
 const MAX_HP := 100
+const REGEN_DELAY := 5.0
+const REGEN_RATE := 8.0
 const IFrames_TIME := 0.9
 
 @onready var cam_pivot: Node3D = $CamPivot
 @onready var camera: Camera3D = $CamPivot/Camera
 
 var hp := MAX_HP
+var _regen_wait := 0.0
+var _regen_accum := 0.0
 var max_hp := MAX_HP
 var _iframes := 0.0
 var _yaw := 0.0
@@ -37,6 +41,7 @@ func _ready() -> void:
 	cam_pivot.rotation.x = deg_to_rad(_pitch)
 
 func _physics_process(delta: float) -> void:
+	_tick_regen(delta)
 	if _fire_timer > 0.0:
 		_fire_timer -= delta
 	if _iframes > 0.0:
@@ -75,6 +80,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func take_damage(amount: int) -> void:
+	_regen_wait = REGEN_DELAY
+	_regen_accum = 0.0
 	if _iframes > 0.0:
 		return
 	if hp <= 0:
@@ -164,3 +171,22 @@ func _find_auto_aim_target(origin: Vector3, forward: Vector3) -> Node3D:
 			best_angle = angle
 			best = enemy
 	return best
+
+
+func _tick_regen(delta: float) -> void:
+	if hp <= 0 or hp >= MAX_HP:
+		_regen_wait = 0.0
+		_regen_accum = 0.0
+		return
+	if _regen_wait > 0.0:
+		_regen_wait -= delta
+		return
+	_regen_accum += REGEN_RATE * delta
+	if _regen_accum < 1.0:
+		return
+	var gain: int = int(_regen_accum)
+	_regen_accum -= float(gain)
+	var before: int = hp
+	hp = min(hp + gain, MAX_HP)
+	if hp != before:
+		hp_changed.emit(hp)
