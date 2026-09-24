@@ -20,6 +20,19 @@ const MAX_HP := 100
 const REGEN_DELAY := 5.0
 const REGEN_RATE := 8.0
 const IFrames_TIME := 0.9
+const SPRINT_MULT := 1.55
+const CROUCH_MULT := 0.5
+const SLIDE_MULT := 2.1
+const SLIDE_TIME := 0.65
+const SLIDE_COOLDOWN := 1.0
+const FOV_BASE := 75.0
+const FOV_SPRINT := 88.0
+const FOV_SLIDE := 96.0
+const STAND_EYE_Y := 1.4
+const CROUCH_EYE_Y := 0.9
+const SLIDE_EYE_Y := 0.6
+const SPRINT_THRESHOLD := 0.85
+const SPRINT_HOLD_TIME := 0.2
 
 @onready var cam_pivot: Node3D = $CamPivot
 @onready var camera: Camera3D = $CamPivot/Camera
@@ -32,6 +45,16 @@ var _iframes := 0.0
 var _yaw := 0.0
 var _pitch := -8.0
 var _fire_timer := 0.0
+var _sprinting := false
+var _sprint_hold := 0.0
+var _crouching := false
+var _sliding := false
+var _slide_timer := 0.0
+var _slide_cd := 0.0
+var _slide_dir := Vector3.ZERO
+var _was_on_floor := true
+var _shake_amt := 0.0
+var _cam_base_pos := Vector3(0, 0.6, 4.0)
 var current_weapon_id: String = WeaponDB.RIFLE
 var ammo: int = 0
 var _reload_timer: float = 0.0
@@ -43,9 +66,12 @@ var touch_move := Vector2.ZERO
 var touch_look := Vector2.ZERO
 var touch_jump := false
 var touch_fire := false
+var touch_crouch := false
 
 func _ready() -> void:
 	ammo = WeaponDB.mag_size(current_weapon_id)
+	_cam_base_pos = camera.position
+	camera.fov = FOV_BASE
 	rotation.y = _yaw
 
 func _physics_process(delta: float) -> void:
@@ -58,6 +84,7 @@ func _physics_process(delta: float) -> void:
 		_switch_cd -= delta
 	_recoil_pitch = move_toward(_recoil_pitch, 0.0, deg_to_rad(28.0) * delta)
 	_tick_regen(delta)
+	_tick_movement_feel(delta)
 	if _fire_timer > 0.0:
 		_fire_timer -= delta
 	if _iframes > 0.0:
@@ -84,8 +111,8 @@ func _physics_process(delta: float) -> void:
 	direction = direction.rotated(Vector3.UP, rotation.y)
 
 	if direction.length() > 0.01:
-		velocity.x = direction.x * SPEED
-		velocity.z = direction.z * SPEED
+		velocity.x = direction.x * _get_move_speed()
+		velocity.z = direction.z * _get_move_speed()
 	else:
 		velocity.x = move_toward(velocity.x, 0, SPEED * 4.0 * delta * 10)
 		velocity.z = move_toward(velocity.z, 0, SPEED * 4.0 * delta * 10)
@@ -97,6 +124,9 @@ func _physics_process(delta: float) -> void:
 
 	cam_pivot.rotation.x = deg_to_rad(_pitch) - _recoil_pitch
 
+	if _sliding and _slide_dir.length() > 0.01:
+		velocity.x = _slide_dir.x * SPEED * SLIDE_MULT
+		velocity.z = _slide_dir.z * SPEED * SLIDE_MULT
 	move_and_slide()
 
 func take_damage(amount: int) -> void:
@@ -267,3 +297,76 @@ func heal(amount: int) -> void:
 	hp = min(hp + amount, MAX_HP)
 	if hp != before:
 		hp_changed.emit(hp)
+
+
+func _tick_movement_feel(delta: float) -> void:
+	var stick_len: float = touch_move.length()
+
+	if stick_len > SPRINT_THRESHOLD:
+		_sprint_hold += delta
+		if _sprint_hold >= SPRINT_HOLD_TIME:
+			_sprinting = true
+	else:
+		_sprint_hold = 0.0
+		_sprinting = false
+
+	if _slide_cd > 0.0:
+		_slide_cd -= delta
+
+	_crouching = touch_crouch and not _sliding
+
+	if touch_crouch and _sprinting and not _sliding and _slide_cd <= 0.0 and is_on_floor():
+		var dir2 := Vector3(touch_move.x, 0, touch_move.y)
+		if dir2.length() > 0.2:
+			dir2 = dir2.rotated(Vector3.UP, rotation.y).normalized()
+			_sliding = true
+			_slide_timer = SLIDE_TIME
+			_slide_cd = SLIDE_COOLDOWN + SLIDE_TIME
+			_slide_dir = dir2
+			SFX.play("reload", -8.0, 1.9)
+
+	if _sliding:
+		_slide_timer -= delta
+		if _slide_timer <= 0.0:
+			_sliding = false
+
+	var target_y := STAND_EYE_Y
+	if _sliding:
+		target_y = SLIDE_EYE_Y
+	elif _crouching:
+		target_y = CROUCH_EYE_Y
+	cam_pivot.position.y = lerp(cam_pivot.position.y, target_y, delta * 12.0)
+
+	var target_fov := FOV_BASE
+	if _sliding:
+		target_fov = FOV_SLIDE
+	elif _sprinting and stick_len > 0.5:
+		target_fov = FOV_SPRINT
+	camera.fov = lerp(camera.fov, target_fov, delta * 8.0)
+
+	var on_floor := is_on_floor()
+	if on_floor and not _was_on_floor:
+		var fall_speed: float = abs(velocity.y)
+		if fall_speed > 3.0:
+			_shake_amt = clampf(fall_speed / 30.0, 0.05, 0.35)
+			SFX.play("hurt", -12.0, 0.7)
+	_was_on_floor = on_floor
+
+	if _shake_amt > 0.001:
+		var ox := randf_range(-1.0, 1.0) * _shake_amt
+		var oy := randf_range(-1.0, 1.0) * _shake_amt
+		var oz := randf_range(-1.0, 1.0) * _shake_amt
+		camera.position = _cam_base_pos + Vector3(ox, oy, oz)
+		_shake_amt = move_toward(_shake_amt, 0.0, delta * 2.5)
+	else:
+		camera.position = _cam_base_pos
+
+
+func _get_move_speed() -> float:
+	if _sliding:
+		return SPEED * SLIDE_MULT
+	if _crouching:
+		return SPEED * CROUCH_MULT
+	if _sprinting:
+		return SPEED * SPRINT_MULT
+	return SPEED

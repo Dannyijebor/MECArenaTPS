@@ -23,6 +23,7 @@ var _fire_touch_id := -1
 var _jump_touch_id := -1
 var _reload_touch_id := -1
 var _switch_touch_id := -1
+var _crouch_touch_id := -1
 
 const C_BASE := Color(0.22, 0.74, 0.97, 0.28)
 
@@ -68,6 +69,10 @@ func _reload_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
 	return Vector2(vp.x - BUTTON_RADIUS - 60, vp.y - BUTTON_RADIUS * 3 - 90)
 
+func _crouch_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(JOYSTICK_RADIUS * 2.0 + 120.0, vp.y - JOYSTICK_RADIUS - 60.0)
+
 func _switch_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
 	return Vector2(vp.x - BUTTON_RADIUS * 3 - 90, vp.y - BUTTON_RADIUS * 3 - 90)
@@ -99,6 +104,11 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			if _player:
 				_player.call("switch_weapon")
 			return
+		if pos.distance_to(_crouch_center()) < BUTTON_RADIUS + 14:
+			_crouch_touch_id = event.index
+			if _player:
+				_player.touch_crouch = true
+			return
 
 		if pos.distance_to(_fire_center()) < BUTTON_RADIUS + 14:
 			_fire_touch_id = event.index
@@ -129,6 +139,10 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_reload_touch_id = -1
 		if event.index == _switch_touch_id:
 			_switch_touch_id = -1
+		if event.index == _crouch_touch_id:
+			_crouch_touch_id = -1
+			if _player:
+				_player.touch_crouch = false
 		if event.index == _fire_touch_id:
 			_fire_touch_id = -1
 			if _player:
@@ -213,6 +227,8 @@ func _draw() -> void:
 
 	_draw_weapon_hud(vp)
 
+	_draw_crouch_button(vp)
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -258,3 +274,14 @@ func _draw_weapon_hud(vp: Vector2) -> void:
 	draw_circle(sp, BUTTON_RADIUS, s_fill)
 	draw_arc(sp, BUTTON_RADIUS, 0.0, TAU, 48, Color(0.7, 0.8, 1.0, 0.9), 3.0)
 	draw_string(font, sp + Vector2(-22, 8), "SWAP", HORIZONTAL_ALIGNMENT_LEFT, 100, 16, Color.WHITE)
+
+
+func _draw_crouch_button(vp: Vector2) -> void:
+	var font := ThemeDB.fallback_font
+	var cp := _crouch_center()
+	var fill := Color(0.6, 0.3, 1.0, 0.5)
+	if _crouch_touch_id != -1:
+		fill = Color(0.7, 0.4, 1.0, 0.95)
+	draw_circle(cp, 50.0, fill)
+	draw_arc(cp, 50.0, 0.0, TAU, 48, Color(0.75, 0.55, 1.0, 0.9), 3.0)
+	draw_string(font, cp + Vector2(-26, 8), "CRCH", HORIZONTAL_ALIGNMENT_LEFT, 100, 16, Color.WHITE)
