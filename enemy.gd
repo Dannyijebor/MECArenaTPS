@@ -58,9 +58,7 @@ func _die() -> void:
 		burst.gravity = Vector3(0, -8, 0)
 		burst.scale_amount_min = 0.08
 		burst.scale_amount_max = 0.18
-		var pm := ParticleProcessMaterial.new()
-		pm.color = Color(1.0, 0.3, 0.3)
-		burst.process_material = pm
+		burst.color = Color(1.0, 0.3, 0.3)
 		burst.global_position = global_position + Vector3(0, 0.8, 0)
 		parent.add_child(burst)
 		var timer := get_tree().create_timer(1.2)

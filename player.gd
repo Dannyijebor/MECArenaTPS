@@ -77,21 +77,25 @@ func fire() -> void:
 	if target != null:
 		shoot_dir = (target.global_position + Vector3(0, 0.8, 0) - origin).normalized()
 
-	# Spawn bullet
+	# Spawn bullet — add to tree FIRST, then set position
 	var bullet_script = load("res://bullet.gd")
 	var bullet := Area3D.new()
 	bullet.set_script(bullet_script)
-	bullet.set("direction", shoot_dir)
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	scene.add_child(bullet)
 	bullet.global_position = origin + shoot_dir * 0.6
-	get_tree().current_scene.add_child(bullet)
+	if bullet.has_method("setup"):
+		bullet.call("setup", shoot_dir)
 
 	# Muzzle flash
 	var flash := OmniLight3D.new()
 	flash.light_color = Color(1.0, 0.85, 0.5)
 	flash.light_energy = 4.0
 	flash.omni_range = 4.0
+	scene.add_child(flash)
 	flash.global_position = origin + shoot_dir * 0.5
-	get_tree().current_scene.add_child(flash)
 	var t := get_tree().create_timer(0.06)
 	t.timeout.connect(func(): if is_instance_valid(flash): flash.queue_free())
 

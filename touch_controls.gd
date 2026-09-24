@@ -34,14 +34,14 @@ const C_CROSSHAIR := Color(1, 0.9, 0.3, 0.85)
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	size = get_viewport().get_visible_rect().size
+	set_deferred("size", get_viewport().get_visible_rect().size)
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	await get_tree().process_frame
 	_player = get_tree().get_first_node_in_group("player")
 
 func _on_viewport_resized() -> void:
-	size = get_viewport().get_visible_rect().size
+	set_deferred("size", get_viewport().get_visible_rect().size)
 
 func _joystick_center() -> Vector2:
 	var vp := get_viewport().get_visible_rect().size
