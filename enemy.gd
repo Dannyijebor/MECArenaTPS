@@ -60,6 +60,8 @@ var _t_color: Color = Color(0.55, 0.16, 0.16)
 var _body_root: Node3D = null
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
+var _anim: AnimationPlayer = null
+var _use_animations: bool = false
 var _walk_phase := 0.0
 var _recoil := 0.0
 

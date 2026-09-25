@@ -63,6 +63,8 @@ var _was_on_floor := true
 var _shake_amt := 0.0
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
+var _anim: AnimationPlayer = null
+var _use_animations: bool = false
 var _walk_phase := 0.0
 var _last_step_idx: int = 0
 var _model_root: Node3D = null
@@ -436,29 +438,34 @@ func report_hit(dmg: int, is_headshot: bool, world_pos: Vector3) -> void:
 
 
 func _setup_human_visual() -> void:
+	# Hide the procedural capsule
 	for c in get_children():
 		if c is MeshInstance3D:
 			(c as MeshInstance3D).visible = false
 
-	var scene: PackedScene = load("res://models/base_characters/Superhero_Male_FullBody.gltf")
+	# Load the SWAT GLB — real Mixamo-rigged tactical character
+	var scene: PackedScene = load("res://models/avatars/swat.glb")
 	if scene == null:
+		print("[player] swat.glb not found")
 		return
-	var inst: Node = scene.instantiate()
-	if not (inst is Node3D):
-		return
-	_model_root = inst as Node3D
-	_model_root.name = "HumanModel"
-	add_child(_model_root)
-	_model_root.position = Vector3(0, -0.05, 0)
-	_model_root.rotation.y = PI
+	var inst: Node3D = scene.instantiate()
+	add_child(inst)
+	inst.position = Vector3(0, 0, 0)
+	inst.rotation.y = PI
 
-	_skeleton = _find_skeleton(_model_root)
-	if _skeleton == null:
-		return
-	_cache_bones()
-	_autoscale(_model_root)
-	_add_clothing(Color(0.13, 0.28, 0.55))
-	_apply_aim_once()
+	# Find AnimationPlayer
+	_anim = inst.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if _anim != null:
+		var list: PackedStringArray = _anim.get_animation_list()
+		print("[player] swat.glb animations: ", list)
+		if list.size() > 0:
+			_anim.play(list[0])
+			print("[player] playing: ", list[0])
+	else:
+		print("[player] no AnimationPlayer in swat.glb")
+
+	# Disable procedural animation — bones are Mixamo, code expects Quaternius names
+	_use_animations = true
 
 func _find_skeleton(n: Node) -> Skeleton3D:
 	if n is Skeleton3D:
