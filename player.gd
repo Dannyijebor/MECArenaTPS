@@ -65,6 +65,9 @@ var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
 var _anim: AnimationPlayer = null
 var _use_animations: bool = false
+var _carry_weight: float = 0.0
+var _max_carry: float = 2400.0
+var _carry_mult: float = 1.0
 var _walk_phase := 0.0
 var _last_step_idx: int = 0
 var _model_root: Node3D = null
@@ -408,14 +411,14 @@ func _tick_movement_feel(delta: float) -> void:
 
 func _get_move_speed() -> float:
 	if _aiming:
-		return SPEED * ADS_SPEED_MULT
+		return SPEED * ADS_SPEED_MULT * _carry_mult
 	if _sliding:
-		return SPEED * SLIDE_MULT
+		return SPEED * SLIDE_MULT * _carry_mult
 	if _crouching:
-		return SPEED * CROUCH_MULT
+		return SPEED * CROUCH_MULT * _carry_mult
 	if _sprinting:
-		return SPEED * SPRINT_MULT
-	return SPEED
+		return SPEED * SPRINT_MULT * _carry_mult
+	return SPEED * _carry_mult
 
 
 func report_hit(dmg: int, is_headshot: bool, world_pos: Vector3) -> void:
@@ -455,14 +458,16 @@ func _setup_human_visual() -> void:
 
 	# Find AnimationPlayer
 	_anim = inst.find_child("AnimationPlayer", true, false) as AnimationPlayer
-	if _anim != null:
-		var list: PackedStringArray = _anim.get_animation_list()
-		print("[player] swat.glb animations: ", list)
-		if list.size() > 0:
-			_anim.play(list[0])
-			print("[player] playing: ", list[0])
-	else:
-		print("[player] no AnimationPlayer in swat.glb")
+	_skeleton = inst.find_child("Skeleton3D", true, false) as Skeleton3D
+	if _skeleton == null:
+		_skeleton = _find_skeleton(inst)
+	if _anim != null and _skeleton != null:
+		var rig_script: Script = load("res://anim_rig.gd")
+		if rig_script != null:
+			var ok: bool = rig_script.attach(_anim, _skeleton)
+			print("[player] rig attach: ", ok)
+			if ok:
+				_anim.play("mixamo/idle")
 
 	# Disable procedural animation — bones are Mixamo, code expects Quaternius names
 	_use_animations = true
@@ -526,39 +531,17 @@ func _apply_aim_once() -> void:
 	_set_bone_local("hand_r", 0.0, 0.0, -15.0)
 
 func _tick_player_walk(delta: float) -> void:
-	if _skeleton == null or _bones.is_empty():
-		return
+	# Procedural bone-writing disabled — Mixamo animations drive the skeleton
+	if _use_animations and _anim != null:
+		_tick_animation_state()
+	# Footsteps still fire off walk phase
 	var speed: float = Vector2(velocity.x, velocity.z).length()
-	var moving := speed > 0.3
-	if moving:
+	if speed > 0.4 and is_on_floor():
 		_walk_phase += 3.2 * (speed / 5.5)
-	var step_idx: int = int(_walk_phase / PI)
-	if step_idx != _last_step_idx and is_on_floor():
-		_last_step_idx = step_idx
-		SFX.play("footstep", -12.0, randf_range(0.9, 1.12))
-	var s: float = sin(_walk_phase)
-	var c: float = cos(_walk_phase)
-	var sw := 34.0 if moving else 0.0
-	_set_bone_local("thigh_l", s * sw)
-	_set_bone_local("thigh_r", -s * sw)
-	_set_bone_local("calf_l", -max(0.0, c) * sw * 0.7)
-	_set_bone_local("calf_r", -max(0.0, -c) * sw * 0.7)
-	# Hip sway — natural walk yaw
-	if moving:
-		var hip_yaw: float = s * 5.0
-		_set_bone_local("hips", 0.0, 0.0, hip_yaw)
-	# Torso lean — forward at speed
-	var lean_pitch: float = 0.0
-	if _sprinting:
-		lean_pitch = -7.0
-	elif moving:
-		lean_pitch = -3.5
-	_set_bone_local("spine_01", lean_pitch)
-	# Idle breathing
-	var breath: float = 0.0
-	if not moving:
-		breath = sin(Time.get_ticks_msec() * 0.001 * 1.9) * 2.2
-	_set_bone_local("spine_02", breath)
+		var step_idx: int = int(_walk_phase / PI)
+		if step_idx != _last_step_idx:
+			_last_step_idx = step_idx
+			SFX.play("footstep", -12.0, randf_range(0.9, 1.12))
 
 func _add_clothing(color: Color) -> void:
 	# Shirt
@@ -596,3 +579,55 @@ func _attach_box(bone: String, size: Vector3, offset: Vector3, color: Color) -> 
 	mat.metallic = 0.05
 	mesh.material_override = mat
 	att.add_child(mesh)
+
+
+func set_carry_weight(amount: float) -> void:
+	_carry_weight = max(0.0, amount)
+	var ratio: float = clampf(_carry_weight / _max_carry, 0.0, 1.0)
+	# Up to -45% movement speed at full carry
+	_carry_mult = 1.0 - ratio * 0.45
+
+
+func get_carry_ratio() -> float:
+	return clampf(_carry_weight / _max_carry, 0.0, 1.0)
+
+
+func get_carry_weight() -> float:
+	return _carry_weight
+
+
+func _tick_animation_state() -> void:
+	if _anim == null:
+		return
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	var target := "mixamo/idle"
+	var speed_mult := 1.0
+	if _aiming and speed < 0.5:
+		target = "mixamo/rifle_idle"
+	elif _crouching or _sliding:
+		if speed > 0.4:
+			target = "mixamo/crouch_walk"
+			speed_mult = 0.9 + (speed / 4.0) * 0.4
+		else:
+			target = "mixamo/idle"
+	elif speed > 0.4:
+		var fwd: Vector3 = -global_transform.basis.z
+		var to_vel: Vector3 = Vector3(velocity.x, 0, velocity.z)
+		var forward_dot: float = fwd.dot(to_vel)
+		if forward_dot < 0.0:
+			target = "mixamo/walk_back"
+			speed_mult = 0.9 + (speed / 5.5) * 0.3
+		elif speed > 4.5:
+			target = "mixamo/run"
+			speed_mult = 1.0 + (speed / 8.0) * 0.25
+		else:
+			target = "mixamo/walk"
+			speed_mult = 0.85 + (speed / 5.5) * 0.45
+	if not _anim.has_animation(target):
+		if _anim.has_animation("mixamo/idle"):
+			target = "mixamo/idle"
+		else:
+			return
+	_anim.speed_scale = speed_mult
+	if _anim.current_animation != target:
+		_anim.play(target, 0.22)

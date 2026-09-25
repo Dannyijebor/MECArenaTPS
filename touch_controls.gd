@@ -251,6 +251,8 @@ func _draw() -> void:
 
 	_draw_extraction_hud()
 
+	_draw_carry_bar(vp)
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -401,3 +403,36 @@ func _draw_extraction_hud() -> void:
 		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0, 0, 0, 0.65))
 		draw_rect(Rect2(bx + 2, by + 2, (bar_w - 4) * extraction_progress, bar_h - 4), Color(0.30, 1.0, 0.55, 0.95))
 		draw_string(font, Vector2(0, y + 20), "EXTRACTING...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, Color(0.30, 1.0, 0.55))
+
+
+func _draw_carry_bar(vp: Vector2) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ratio_v: Variant = _player.get("_carry_weight")
+	if ratio_v == null:
+		return
+	var weight: float = float(ratio_v)
+	if weight <= 0.0:
+		return
+	var max_v: Variant = _player.get("_max_carry")
+	var max_w: float = float(max_v) if max_v != null else 2400.0
+	var ratio: float = clampf(weight / max_w, 0.0, 1.0)
+	var font := ThemeDB.fallback_font
+	# Position: right side under HUD, small bar
+	var bar_w := 200.0
+	var bar_h := 12.0
+	var bx := vp.x - bar_w - 30.0
+	var by := 190.0
+	draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0, 0, 0, 0.65))
+	var col := Color(0.30, 0.95, 1.0)
+	if ratio > 0.6:
+		col = Color(1.0, 0.75, 0.20)
+	if ratio > 0.85:
+		col = Color(1.0, 0.35, 0.20)
+	draw_rect(Rect2(bx + 2, by + 2, (bar_w - 4) * ratio, bar_h - 4), col)
+	var label := "CARRY " + str(int(weight))
+	if ratio > 0.85:
+		label += "  HEAVY"
+	elif ratio > 0.6:
+		label += "  LOADED"
+	draw_string(font, Vector2(bx, by - 6), label, HORIZONTAL_ALIGNMENT_RIGHT, bar_w, 14, col)

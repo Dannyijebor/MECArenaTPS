@@ -2,11 +2,23 @@ extends Node3D
 const SFX := preload("res://sfx.gd")
 const SAVE_PATH := "user://sector7_best.cfg"
 
+const WAVE_MODIFIERS := [
+	{"name": "AMBIENT CALM",     "desc": "Fewer hostiles",              "color": Color(0.55, 0.90, 1.00), "count": 0.75, "speed": 1.00, "bias": 0},
+	{"name": "HIGH ALERT",       "desc": "More hostiles inbound",        "color": Color(1.00, 0.65, 0.20), "count": 1.40, "speed": 0.95, "bias": 0},
+	{"name": "RESONANCE STORM",  "desc": "Electrical surge — faster enemies", "color": Color(0.72, 0.30, 1.00), "count": 1.10, "speed": 1.35, "bias": 0},
+	{"name": "RUSHER ASSAULT",   "desc": "Fast melee units inbound",      "color": Color(1.00, 0.35, 0.15), "count": 1.15, "speed": 1.00, "bias": 1},
+	{"name": "SNIPER FOCUS",     "desc": "Long-range specialists active", "color": Color(0.95, 0.85, 0.20), "count": 1.00, "speed": 1.00, "bias": 3},
+	{"name": "TANK PATROL",      "desc": "Heavy armor detected",          "color": Color(0.65, 0.30, 0.95), "count": 1.05, "speed": 0.95, "bias": 2},
+]
+var _active_modifier: Dictionary = {}
+
 const FLOOR_SIZE := 40.0
 
 # Wave system
 var _wave := 0
 var _score := 0
+var _loot_haul := 0
+var _loot_tier_counts := [0, 0, 0, 0]
 var _kills := 0
 var _best_score := 0
 var _best_wave := 0
@@ -31,16 +43,17 @@ var _ambient_player: AudioStreamPlayer = null
 var _distant_timer: float = 0.0
 
 func _ready() -> void:
-	_build_environment()
 	_build_floor()
 	_build_player()
 	_build_lighting()
-	_build_environment_obstacles()
-	_build_arena_walls()
+	_build_environment()
+	_build_scifi_env()
+	_build_neon_bazaar()
 	_build_platforms()
-	_build_grid_marks()
 	_build_details()
 	_build_extraction_pad()
+	_build_dannys_shrine()
+	_build_void_edges()
 	_build_touch_controls()
 	_build_ambient()
 	# Wait a frame so UI is in the tree, then cache it
@@ -56,14 +69,14 @@ func _build_environment() -> void:
 	sky.sky_material = ProceduralSkyMaterial.new()
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.13
+	e.ambient_light_energy = 0.10
 	env.environment = e
 	add_child(env)
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.06, 0.07, 0.11)
+	e.fog_light_color = Color(0.15, 0.04, 0.14)
 	e.fog_light_energy = 0.7
-	e.fog_density = 0.055
-	e.fog_sky_affect = 0.3
+	e.fog_density = 0.075
+	e.fog_sky_affect = 0.75
 
 
 func _build_floor() -> void:
@@ -72,10 +85,13 @@ func _build_floor() -> void:
 	plane.size = Vector2(FLOOR_SIZE, FLOOR_SIZE)
 	floor_mesh.mesh = plane
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.17, 0.22)
+	mat.albedo_color = Color(0.035, 0.030, 0.045)
+	mat.roughness = 0.15
+	mat.metallic = 0.55
+	mat.rim_enabled = true
+	mat.rim = 0.4
 	floor_mesh.material_override = mat
 	add_child(floor_mesh)
-
 	var floor_body := StaticBody3D.new()
 	var floor_col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -235,12 +251,16 @@ func _spawn_wave_enemies(count: int) -> void:
 		Vector3(-15.0, 1.0,  15.0),
 		Vector3( 15.0, 1.0,  15.0),
 	]
-	# Compose type mix by wave
+	var bias: int = int(_active_modifier.get("bias", 0))
+	var speed_mult: float = float(_active_modifier.get("speed", 1.0))
 	var types: Array = []
 	for i in range(count):
 		var t := 0
 		var r := randf()
-		if _wave >= 7 and r < 0.15:
+		# Bias overrides default distribution
+		if bias > 0 and randf() < 0.55:
+			t = bias
+		elif _wave >= 7 and r < 0.15:
 			t = 3
 		elif _wave >= 5 and r < 0.40:
 			t = 2
@@ -251,14 +271,16 @@ func _spawn_wave_enemies(count: int) -> void:
 		var base: Vector3 = corners[i % corners.size()]
 		var jitter := Vector3(randf_range(-2.5, 2.5), 0.0, randf_range(-2.5, 2.5))
 		var pos: Vector3 = base + jitter
-		_spawn_enemy_at(pos, enemy_script, types[i])
+		var e := _spawn_enemy_at(pos, enemy_script, types[i])
+		if e != null and speed_mult != 1.0:
+			var base_speed_v: Variant = e.get("_t_speed_mult")
+			if base_speed_v != null:
+				e.set("_t_speed_mult", float(base_speed_v) * speed_mult)
 
-func _spawn_enemy_at(pos: Vector3, enemy_script: Script, type_idx: int = 0) -> void:
-	# Darkness puff
+
+func _spawn_enemy_at(pos: Vector3, enemy_script: Script, type_idx: int = 0) -> Node3D:
 	_spawn_spawn_puff(pos)
-	# Low rumble
 	SFX.play("enemy_shoot", -10.0, 0.45)
-
 	var e := CharacterBody3D.new()
 	e.set_script(enemy_script)
 	e.enemy_type = type_idx
@@ -272,11 +294,12 @@ func _spawn_enemy_at(pos: Vector3, enemy_script: Script, type_idx: int = 0) -> v
 	e.add_child(col)
 	add_child(e)
 	e.connect("died", Callable(self, "_on_enemy_died"))
-	# Scale-in from shadow
 	e.scale = Vector3(0.1, 0.1, 0.1)
 	var tw := create_tween()
 	tw.tween_property(e, "scale", Vector3.ONE, 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_enemies_alive += 1
+	return e
+
 
 func _spawn_spawn_puff(pos: Vector3) -> void:
 	var p := CPUParticles3D.new()
@@ -314,10 +337,22 @@ func _spawn_spawn_puff(pos: Vector3) -> void:
 func _start_wave(n: int) -> void:
 	SFX.play("wave_start", -4.0)
 	_wave = n
+	if n > _best_wave:
+		_best_wave = n
 	_between_waves = false
-	var count := 3 + (n - 1) * 2
+	# Pick modifier (wave 1 always CALM)
+	if n == 1:
+		_active_modifier = WAVE_MODIFIERS[0]
+	else:
+		_active_modifier = WAVE_MODIFIERS[randi() % WAVE_MODIFIERS.size()]
+	# Announce
+	_show_wave_banner(n, _active_modifier)
+	# Compute enemy count
+	var base_count := 3 + (n - 1) * 2
+	var count: int = max(2, int(round(float(base_count) * float(_active_modifier.get("count", 1.0)))))
 	_spawn_wave_enemies(count)
-	_spawn_medkits(1 + int((n - 1) / 2))
+	_maybe_spawn_ghost(n)
+
 
 func _on_enemy_died() -> void:
 	_kills += 1
@@ -512,7 +547,6 @@ func _build_details() -> void:
 	_build_wall_accents()
 	_build_neon_floor_strips()
 	_build_ceiling_beams()
-	_build_crates()
 	_build_corner_lights()
 	_build_danny_sign()
 
@@ -790,15 +824,18 @@ func _on_extraction_complete() -> void:
 		return
 	_extracted = true
 	SFX.play("wave_clear", 0.0)
+	# Haul bonus — the whole point of carrying weight
+	var bonus: int = int(round(float(_loot_haul) * 0.5))
+	_score += bonus
 	_save_best()
-	_show_extraction_banner()
+	_show_extraction_banner(bonus)
 	var t := get_tree().create_timer(4.5)
 	t.timeout.connect(func() -> void:
 		get_tree().reload_current_scene()
 	)
 
 
-func _show_extraction_banner() -> void:
+func _show_extraction_banner(haul_bonus: int = 0) -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 120
 	add_child(layer)
@@ -813,7 +850,7 @@ func _show_extraction_banner() -> void:
 	label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	layer.add_child(label)
 	var sub := Label.new()
-	sub.text = "SCORE " + str(_score) + "  •  WAVE " + str(_wave) + " BANKED"
+	sub.text = "SCORE " + str(_score) + "  •  WAVE " + str(_wave) + "  •  HAUL BONUS +" + str(haul_bonus) + "  (x0.5)"
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.75, 1.0, 0.85))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -837,3 +874,401 @@ func _load_best() -> void:
 	if cfg.load(SAVE_PATH) == OK:
 		_best_score = int(cfg.get_value("progress", "best_score", 0))
 		_best_wave = int(cfg.get_value("progress", "best_wave", 0))
+
+
+func _build_neon_bazaar() -> void:
+	_build_bazaar_lights()
+	_build_neon_signs()
+	_build_hand_of_danny()
+
+
+func _build_bazaar_lights() -> void:
+	# Magenta + cyan cross-lights — the signature neon-grunge palette
+	var magenta := OmniLight3D.new()
+	magenta.light_color = Color(1.0, 0.15, 0.65)
+	magenta.light_energy = 4.5
+	magenta.omni_range = 42.0
+	magenta.position = Vector3(-14, 8, -14)
+	add_child(magenta)
+
+	var cyan := OmniLight3D.new()
+	cyan.light_color = Color(0.10, 0.85, 1.0)
+	cyan.light_energy = 4.5
+	cyan.omni_range = 42.0
+	cyan.position = Vector3(14, 8, 14)
+	add_child(cyan)
+
+	# Soft magenta rim on the ceiling
+	var top := OmniLight3D.new()
+	top.light_color = Color(0.9, 0.25, 0.7)
+	top.light_energy = 1.6
+	top.omni_range = 30.0
+	top.position = Vector3(0, 11.0, 0)
+	add_child(top)
+
+
+func _build_neon_signs() -> void:
+	# 8 storefront signs around the walls
+	var palette := [
+		Color(1.0, 0.15, 0.65),   # magenta
+		Color(0.10, 0.85, 1.0),   # cyan
+		Color(1.0, 0.85, 0.15),   # sodium yellow
+	]
+	var half := FLOOR_SIZE * 0.5 - 1.0
+	var placements := [
+		{"pos": Vector3(-8.0, 4.0, -half + 0.4), "size": Vector3(4.0, 1.2, 0.10), "rot": Vector3.ZERO},
+		{"pos": Vector3( 8.0, 5.0, -half + 0.4), "size": Vector3(3.0, 2.0, 0.10), "rot": Vector3.ZERO},
+		{"pos": Vector3(-8.0, 6.0,  half - 0.4), "size": Vector3(3.5, 1.5, 0.10), "rot": Vector3(0, PI, 0)},
+		{"pos": Vector3( 8.0, 3.5,  half - 0.4), "size": Vector3(4.5, 0.9, 0.10), "rot": Vector3(0, PI, 0)},
+		{"pos": Vector3(-half + 0.4, 5.0, -8.0), "size": Vector3(0.10, 1.8, 3.5), "rot": Vector3.ZERO},
+		{"pos": Vector3(-half + 0.4, 3.5,  8.0), "size": Vector3(0.10, 1.0, 4.0), "rot": Vector3.ZERO},
+		{"pos": Vector3( half - 0.4, 6.0, -8.0), "size": Vector3(0.10, 2.2, 3.0), "rot": Vector3.ZERO},
+		{"pos": Vector3( half - 0.4, 4.5,  8.0), "size": Vector3(0.10, 1.4, 3.8), "rot": Vector3.ZERO},
+	]
+	for i in range(placements.size()):
+		var pl: Dictionary = placements[i]
+		var col: Color = palette[i % palette.size()]
+		var mesh := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = pl.size
+		mesh.mesh = box
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = col
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = 2.6
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mesh.material_override = mat
+		mesh.position = pl.pos
+		mesh.rotation_degrees = pl.rot
+		add_child(mesh)
+		# Soft local light for sign bleed
+		var l := OmniLight3D.new()
+		l.light_color = col
+		l.light_energy = 1.6
+		l.omni_range = 8.0
+		l.position = pl.pos + Vector3(0, -1.5, 0)
+		add_child(l)
+
+
+func _build_hand_of_danny() -> void:
+	# Composite monument — chrome hand gripping a wrench, at the north wall
+	var base_pos := Vector3(0, 0, -FLOOR_SIZE * 0.5 + 4.0)
+	var chrome := StandardMaterial3D.new()
+	chrome.albedo_color = Color(0.85, 0.88, 0.92)
+	chrome.metallic = 0.95
+	chrome.roughness = 0.15
+
+	# Forearm / wrist
+	_add_hand_part(base_pos + Vector3(0, 2.0, 0), Vector3(3.6, 1.8, 3.6), chrome)
+	# Palm
+	_add_hand_part(base_pos + Vector3(0, 4.6, 0), Vector3(5.5, 2.4, 2.6), chrome)
+	# Fingers (5, splayed)
+	var finger_x := [-2.2, -1.1, 0.0, 1.1, 2.2]
+	var finger_h := [3.6, 4.0, 4.2, 3.9, 3.2]
+	for i in range(5):
+		_add_hand_part(
+			base_pos + Vector3(finger_x[i], 6.4 + finger_h[i] * 0.5, 0),
+			Vector3(0.55, finger_h[i], 1.0),
+			chrome)
+	# Thumb, angled out from palm
+	_add_hand_part(base_pos + Vector3(3.0, 4.6, 0.2), Vector3(1.8, 0.7, 0.7), chrome)
+
+	# The wrench — shaft + C-shaped head
+	_add_hand_part(base_pos + Vector3(0, 5.4, 2.6), Vector3(0.55, 0.55, 5.0), chrome)
+	_add_hand_part(base_pos + Vector3(0, 5.4, 5.5), Vector3(1.8, 0.55, 0.55), chrome)
+	_add_hand_part(base_pos + Vector3(-0.7, 6.2, 5.7), Vector3(0.5, 1.4, 0.5), chrome)
+	_add_hand_part(base_pos + Vector3( 0.7, 6.2, 5.7), Vector3(0.5, 1.4, 0.5), chrome)
+
+	# Pedestal light under the hand
+	var danny_light := OmniLight3D.new()
+	danny_light.light_color = Color(0.15, 0.95, 1.0)
+	danny_light.light_energy = 6.0
+	danny_light.omni_range = 22.0
+	danny_light.position = base_pos + Vector3(0, 5.0, 3.0)
+	add_child(danny_light)
+
+	# "MADE BY DANNY" glowing across the palm
+	var tm := TextMesh.new()
+	tm.text = "MADE BY DANNY"
+	tm.font_size = 128
+	tm.pixel_size = 0.024
+	tm.depth = 0.15
+	tm.curve_step = 0.5
+	tm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var mi := MeshInstance3D.new()
+	mi.mesh = tm
+	var text_mat := StandardMaterial3D.new()
+	text_mat.albedo_color = Color(0.55, 0.98, 1.0)
+	text_mat.emission_enabled = true
+	text_mat.emission = Color(0.35, 0.92, 1.0)
+	text_mat.emission_energy_multiplier = 4.5
+	text_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = text_mat
+	mi.position = base_pos + Vector3(0, 4.6, 1.45)
+	add_child(mi)
+
+
+func _add_hand_part(pos: Vector3, size: Vector3, mat: StandardMaterial3D) -> void:
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	mesh.mesh = box
+	mesh.material_override = mat
+	mesh.position = pos
+	add_child(mesh)
+	# Match collision so player can't walk through the monument
+	var body := StaticBody3D.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	col.shape = shape
+	body.add_child(col)
+	body.position = pos
+	add_child(body)
+
+
+func _build_scifi_env() -> void:
+	var env_script: Script = load("res://scifi_env.gd")
+	if env_script == null:
+		print("[scifi] env script missing")
+		return
+	var env: Node = Node.new()
+	env.set_script(env_script)
+	add_child(env)
+	env.call("build", self, FLOOR_SIZE)
+	print("[scifi] environment built")
+
+
+
+
+func _spawn_loot_drop(pos: Vector3) -> void:
+	var roll := randf()
+	var tier := -1
+	if roll < 0.60:
+		return
+	elif roll < 0.85:
+		tier = 0
+	elif roll < 0.96:
+		tier = 1
+	elif roll < 0.99:
+		tier = 2
+	else:
+		tier = 3
+	var loot_script: Script = load("res://loot.gd")
+	if loot_script == null:
+		return
+	var loot := Area3D.new()
+	loot.set_script(loot_script)
+	loot.call("setup", tier)
+	loot.position = pos + Vector3(randf_range(-0.6, 0.6), 0.5, randf_range(-0.6, 0.6))
+	add_child(loot)
+
+
+func add_loot(value: int, tier: int) -> void:
+	_loot_haul += value
+	if tier >= 0 and tier < _loot_tier_counts.size():
+		_loot_tier_counts[tier] += 1
+	# Push carry weight to player — slows them, ups tension
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player != null and player.has_method("set_carry_weight"):
+		player.call("set_carry_weight", float(_loot_haul))
+	print("[loot] +", value, " tier ", tier, " total ", _loot_haul)
+
+
+func _show_wave_banner(n: int, modifier: Dictionary) -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "WaveBanner"
+	layer.layer = 90
+	add_child(layer)
+	var holder := Control.new()
+	holder.set_anchors_preset(Control.PRESET_FULL_RECT)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(holder)
+	var title := Label.new()
+	title.text = "WAVE " + str(n)
+	title.add_theme_font_size_override("font_size", 56)
+	title.add_theme_color_override("font_color", Color(0.60, 0.95, 1.0))
+	title.add_theme_color_override("font_outline_color", Color(0.02, 0.05, 0.10))
+	title.add_theme_constant_override("outline_size", 12)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	title.offset_top = 140.0
+	title.offset_bottom = 220.0
+	holder.add_child(title)
+	var sub := Label.new()
+	sub.text = String(modifier.get("name", ""))
+	sub.add_theme_font_size_override("font_size", 30)
+	sub.add_theme_color_override("font_color", modifier.get("color", Color.WHITE))
+	sub.add_theme_color_override("font_outline_color", Color(0.02, 0.05, 0.10))
+	sub.add_theme_constant_override("outline_size", 8)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sub.offset_top = 220.0
+	sub.offset_bottom = 270.0
+	holder.add_child(sub)
+	var desc := Label.new()
+	desc.text = String(modifier.get("desc", ""))
+	desc.add_theme_font_size_override("font_size", 16)
+	desc.add_theme_color_override("font_color", Color(0.75, 0.82, 0.92))
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	desc.offset_top = 275.0
+	desc.offset_bottom = 305.0
+	holder.add_child(desc)
+	title.modulate.a = 0.0
+	sub.modulate.a = 0.0
+	desc.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(title, "modulate:a", 1.0, 0.35)
+	tw.parallel().tween_property(sub, "modulate:a", 1.0, 0.45)
+	tw.parallel().tween_property(desc, "modulate:a", 0.9, 0.55)
+	tw.tween_interval(2.0)
+	tw.tween_property(title, "modulate:a", 0.0, 0.8)
+	tw.parallel().tween_property(sub, "modulate:a", 0.0, 0.8)
+	tw.parallel().tween_property(desc, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(layer.queue_free)
+
+
+func _maybe_spawn_ghost(wave_num: int) -> void:
+	if wave_num < 3 or wave_num % 3 != 0:
+		return
+	# Pick a target — random open position in the arena
+	var tx := randf_range(-14.0, 14.0)
+	var tz := randf_range(-14.0, 14.0)
+	var target := Vector3(tx, 0.9, tz)
+	# Spawn edge opposite target
+	var spawn_x: float = -14.0 if tx > 0 else 14.0
+	var spawn_z: float = -14.0 if tz > 0 else 14.0
+	var spawn := Vector3(spawn_x, 0.9, spawn_z)
+	var ghost_script: Script = load("res://dannys_ghost.gd")
+	if ghost_script == null:
+		print("[ghost] script missing")
+		return
+	var ghost := Node3D.new()
+	ghost.set_script(ghost_script)
+	ghost.call("setup", target)
+	ghost.position = spawn
+	add_child(ghost)
+	print("[ghost] Danny appeared at wave ", wave_num, " heading to ", target)
+
+
+func spawn_danny_loot(pos: Vector3) -> void:
+	# Guaranteed Danny-tier drop + 2 rares
+	var loot_script: Script = load("res://loot.gd")
+	if loot_script == null:
+		return
+	var danny_loot := Area3D.new()
+	danny_loot.set_script(loot_script)
+	danny_loot.call("setup", 3)
+	danny_loot.position = pos + Vector3(0, 0.5, 0)
+	add_child(danny_loot)
+	for i in range(2):
+		var r := Area3D.new()
+		r.set_script(loot_script)
+		r.call("setup", 2)
+		r.position = pos + Vector3(randf_range(-1.5, 1.5), 0.5, randf_range(-1.5, 1.5))
+		add_child(r)
+	print("[ghost] Danny loot spawned at ", pos)
+
+
+func _build_dannys_shrine() -> void:
+	var shrine_script: Script = load("res://dannys_shrine.gd")
+	if shrine_script == null:
+		print("[shrine] script missing")
+		return
+	var shrine := Node3D.new()
+	shrine.set_script(shrine_script)
+	shrine.call("setup", Vector3(-15.0, 0, -15.0))
+	shrine.position = Vector3(-15.0, 0, -15.0)
+	add_child(shrine)
+	print("[shrine] Danny's Shrine built at NW corner")
+
+
+func is_in_shrine_safe_zone(pos: Vector3) -> bool:
+	for s in get_tree().get_nodes_in_group("shrine"):
+		if s is Node3D:
+			if pos.distance_to((s as Node3D).global_position) < 8.0:
+				return true
+	return false
+
+
+func _build_void_edges() -> void:
+	# Replace the arena's outer void look — dark starfield below, red warning rail above
+	var half := FLOOR_SIZE * 0.5
+	# 1. Starfield ambient — distant points visible above the wall line
+	var stars := MultiMesh.new()
+	stars.transform_format = MultiMesh.TRANSFORM_3D
+	stars.mesh = SphereMesh.new()
+	(stars.mesh as SphereMesh).radius = 0.04
+	(stars.mesh as SphereMesh).height = 0.08
+	var star_mat := StandardMaterial3D.new()
+	star_mat.albedo_color = Color(0.85, 0.92, 1.0)
+	star_mat.emission_enabled = true
+	star_mat.emission = Color(0.75, 0.85, 1.0)
+	star_mat.emission_energy_multiplier = 3.0
+	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	(stars.mesh as SphereMesh).material = star_mat
+	stars.instance_count = 120
+	for i in range(120):
+		var t := Transform3D()
+		var r := randf_range(half + 6.0, half + 40.0)
+		var ang := randf() * TAU
+		var y := randf_range(6.0, 25.0)
+		t.origin = Vector3(cos(ang) * r, y, sin(ang) * r)
+		stars.set_instance_transform(i, t)
+	var stars_node := MultiMeshInstance3D.new()
+	stars_node.multimesh = stars
+	add_child(stars_node)
+	# 2. Red warning rail bands along the top of each wall — "drop is here"
+	var red := Color(1.0, 0.20, 0.20)
+	var rail_y := 4.4 + 0.1
+	var rails := [
+		{"pos": Vector3(0, rail_y, -half + 0.15), "size": Vector3(FLOOR_SIZE, 0.08, 0.10)},
+		{"pos": Vector3(0, rail_y,  half - 0.15), "size": Vector3(FLOOR_SIZE, 0.08, 0.10)},
+		{"pos": Vector3(-half + 0.15, rail_y, 0), "size": Vector3(0.10, 0.08, FLOOR_SIZE)},
+		{"pos": Vector3( half - 0.15, rail_y, 0), "size": Vector3(0.10, 0.08, FLOOR_SIZE)},
+	]
+	for r in rails:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = r.size
+		mi.mesh = bm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = red
+		m.emission_enabled = true
+		m.emission = red
+		m.emission_energy_multiplier = 3.0
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mi.material_override = m
+		mi.position = r.pos
+		add_child(mi)
+	# 3. Red beacon pulses at each corner — 4 warning lights
+	var corners := [
+		Vector3(-half + 0.3, rail_y + 0.3, -half + 0.3),
+		Vector3( half - 0.3, rail_y + 0.3, -half + 0.3),
+		Vector3(-half + 0.3, rail_y + 0.3,  half - 0.3),
+		Vector3( half - 0.3, rail_y + 0.3,  half - 0.3),
+	]
+	for c in corners:
+		var l := OmniLight3D.new()
+		l.light_color = Color(1.0, 0.15, 0.15)
+		l.light_energy = 2.0
+		l.omni_range = 8.0
+		l.position = c
+		add_child(l)
+		# Beacon bulb
+		var bulb := MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		sph.radius = 0.12
+		sph.height = 0.24
+		bulb.mesh = sph
+		var bmat := StandardMaterial3D.new()
+		bmat.albedo_color = Color(1.0, 0.20, 0.20)
+		bmat.emission_enabled = true
+		bmat.emission = Color(1.0, 0.15, 0.15)
+		bmat.emission_energy_multiplier = 4.0
+		bulb.material_override = bmat
+		bulb.position = c
+		add_child(bulb)

@@ -80,7 +80,7 @@ func _ready() -> void:
 
 func _build_visual() -> void:
 	if _model_scene == null:
-		var loaded: Resource = load("res://models/base_characters/Superhero_Male_FullBody.gltf")
+		var loaded: Resource = load("res://models/avatars/warzombie.glb")
 		if loaded is PackedScene:
 			_model_scene = loaded as PackedScene
 	if _model_scene != null:
@@ -139,6 +139,17 @@ func _find_skeleton() -> void:
 	if _body_root == null:
 		return
 	_skeleton = _find_skeleton_recursive(_body_root)
+	# Attach Mixamo animations to a runtime AnimationPlayer
+	var rig_script: Script = load("res://anim_rig.gd")
+	if rig_script != null and _body_root != null and _skeleton != null:
+		_anim = _body_root.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if _anim == null:
+			_anim = AnimationPlayer.new()
+			_body_root.add_child(_anim)
+		var ok: bool = rig_script.attach(_anim, _skeleton)
+		print("[enemy] rig attach: ", ok)
+		if ok:
+			_anim.play("mixamo/idle")
 	_add_clothing(_t_color)
 	if _skeleton == null:
 		return
@@ -216,49 +227,10 @@ func _set_bone_local(bone_short: String, pitch_deg: float, roll_deg: float = 0.0
 	_skeleton.set_bone_pose_rotation(idx, (rest * extra).get_rotation_quaternion())
 
 func _apply_pose(speed: float) -> void:
-	if _skeleton == null or _bones.is_empty():
-		return
-	# Legs walk
-	var moving := speed > 0.3
-	if moving:
-		_walk_phase += WALK_FREQ * (speed / SPEED)
-	var swing: float = deg_to_rad(SWING_DEG) if moving else 0.0
-	var s: float = sin(_walk_phase)
-	var c: float = cos(_walk_phase)
-	_set_bone_local("thigh_l", s * SWING_DEG)
-	_set_bone_local("thigh_r", -s * SWING_DEG)
-	_set_bone_local("calf_l", -max(0.0, c) * SWING_DEG * 0.7)
-	_set_bone_local("calf_r", -max(0.0, -c) * SWING_DEG * 0.7)
-	# Arms: static aim pose + tiny sway
-	var sway := sin(_walk_phase * 0.5) * 3.0
-	_set_bone_local("upperarm_l", 0.0, 72.0 + sway, -12.0)
-	_set_bone_local("upperarm_r", 0.0, -72.0 + sway, 12.0)
-	_set_bone_local("lowerarm_l", 0.0, 55.0, 0.0)
-	_set_bone_local("lowerarm_r", 0.0, -55.0, 0.0)
-	_set_bone_local("hand_l", 0.0, 0.0, AIM_HAND_TWIST)
-	_set_bone_local("hand_r", 0.0, 0.0, -AIM_HAND_TWIST)
-	# Hip counter-sway while walking
-	if moving:
-		var hip_yaw: float = -s * 4.5
-		_set_bone_local("hips", 0.0, 0.0, hip_yaw)
-	# Forward lean at speed
-	var lean_pitch: float = 0.0
-	if speed > SPEED * 1.2:
-		lean_pitch = -8.0
-	elif moving:
-		lean_pitch = -3.0
-	_set_bone_local("spine_01", lean_pitch)
-	# Head tracking — turn toward player
-	if _player != null and is_instance_valid(_player):
-		var to_p: Vector3 = _player.global_position - global_position
-		to_p.y = 0.0
-		if to_p.length() > 0.1:
-			var local_p: Vector3 = to_p.rotated(Vector3.UP, -rotation.y)
-			var yaw_deg: float = rad_to_deg(atan2(-local_p.x, -local_p.z))
-			yaw_deg = clampf(yaw_deg, -50.0, 50.0)
-			_set_bone_local("neck", 0.0, 0.0, yaw_deg * 0.55)
-			_set_bone_local("head", 0.0, 0.0, yaw_deg * 0.45)
-
+	# Replaced by Mixamo animations
+	if _use_animations and _anim != null:
+		_tick_animation_state()
+	return
 
 func _spawn_muzzle_flash() -> void:
 	var flash := OmniLight3D.new()
@@ -638,3 +610,24 @@ func _apply_type() -> void:
 			_t_dmg = 18
 			_t_color = Color(0.92, 0.72, 0.15)
 	hp = _t_hp
+
+
+func _tick_animation_state() -> void:
+	if _anim == null:
+		return
+	if _dying:
+		return
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	var target := "mixamo/idle"
+	var speed_mult := 1.0
+	if speed > 0.4:
+		target = "mixamo/walk"
+		speed_mult = 0.85 + (speed / 4.0) * 0.5
+	if not _anim.has_animation(target):
+		if _anim.has_animation("mixamo/idle"):
+			target = "mixamo/idle"
+		else:
+			return
+	_anim.speed_scale = speed_mult
+	if _anim.current_animation != target:
+		_anim.play(target, 0.25)
