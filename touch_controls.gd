@@ -29,6 +29,8 @@ var _ads_touch_id := -1
 const C_BASE := Color(0.22, 0.74, 0.97, 0.28)
 
 var _wave: int = 1
+var extraction_progress: float = 0.0
+var extraction_armed: bool = false
 var _kills: int = 0
 
 func set_state(wave: int, kills: int) -> void:
@@ -247,6 +249,8 @@ func _draw() -> void:
 
 	_draw_ads_button(vp)
 
+	_draw_extraction_hud()
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -379,3 +383,21 @@ func _draw_ads_button(vp: Vector2) -> void:
 	draw_line(ap + Vector2(0, -14), ap + Vector2(0, -5), ic, 2.0)
 	draw_line(ap + Vector2(0, 5), ap + Vector2(0, 14), ic, 2.0)
 	draw_string(font, ap + Vector2(-16, BUTTON_RADIUS + 18), "AIM", HORIZONTAL_ALIGNMENT_LEFT, 100, 14, Color.WHITE)
+
+
+func _draw_extraction_hud() -> void:
+	var font := ThemeDB.fallback_font
+	var vp := get_viewport().get_visible_rect().size
+	# Bottom-center prompt
+	var y := vp.y - 200.0
+	if extraction_armed and extraction_progress <= 0.0:
+		var msg := "EXTRACTION ARMED — RETURN TO GREEN PAD"
+		draw_string(font, Vector2(0, y), msg, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(0.30, 1.0, 0.55, 0.85))
+	if extraction_progress > 0.0:
+		var bar_w := 380.0
+		var bar_h := 18.0
+		var bx := (vp.x - bar_w) * 0.5
+		var by := y - 20.0
+		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0, 0, 0, 0.65))
+		draw_rect(Rect2(bx + 2, by + 2, (bar_w - 4) * extraction_progress, bar_h - 4), Color(0.30, 1.0, 0.55, 0.95))
+		draw_string(font, Vector2(0, y + 20), "EXTRACTING...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, Color(0.30, 1.0, 0.55))

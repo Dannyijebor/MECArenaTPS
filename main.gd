@@ -1,17 +1,31 @@
 extends Node3D
 const SFX := preload("res://sfx.gd")
+const SAVE_PATH := "user://sector7_best.cfg"
 
 const FLOOR_SIZE := 40.0
 
 # Wave system
 var _wave := 0
-var _kills := 0
+var _score := 0
+var _best_score := 0
+var _best_wave := 0
 var _enemies_alive := 0
 var _wave_cooldown := 0.0
 var _between_waves := false
 
 # UI reference
 var _ui: Node = null
+var _extraction_area: Area3D = null
+var _extraction_light: OmniLight3D = null
+var _extraction_ring: MeshInstance3D = null
+var _extraction_disc: MeshInstance3D = null
+var _extraction_pos := Vector3(24.0, 0.05, 24.0)
+var _player_in_extraction := false
+var _extraction_hold := 0.0
+var _extraction_armed := false
+var _extracted := false
+const EXTRACT_HOLD_TIME := 2.5
+const EXTRACT_MIN_WAVE := 3
 var _ambient_player: AudioStreamPlayer = null
 var _distant_timer: float = 0.0
 
@@ -25,6 +39,7 @@ func _ready() -> void:
 	_build_platforms()
 	_build_grid_marks()
 	_build_details()
+	_build_extraction_pad()
 	_build_touch_controls()
 	_build_ambient()
 	# Wait a frame so UI is in the tree, then cache it
@@ -322,6 +337,7 @@ func _respawn_player() -> void:
 		player.call("respawn")
 
 func _process(delta: float) -> void:
+	_tick_extraction(delta)
 	if _distant_timer > 0.0:
 		_distant_timer -= delta
 		if _distant_timer <= 0.0:
@@ -674,3 +690,149 @@ func _build_ambient() -> void:
 	add_child(_ambient_player)
 	_ambient_player.play()
 	_distant_timer = randf_range(4.0, 9.0)
+
+
+func _build_extraction_pad() -> void:
+	# Green glowing cylinder + rotating ring at arena corner
+	var disc := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 3.0
+	cyl.bottom_radius = 3.0
+	cyl.height = 0.10
+	disc.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.10, 0.30, 0.15)
+	mat.emission_enabled = true
+	mat.emission = Color(0.10, 0.30, 0.15)
+	mat.emission_energy_multiplier = 0.5
+	disc.material_override = mat
+	disc.position = _extraction_pos + Vector3(0, 0.05, 0)
+	add_child(disc)
+	_extraction_disc = disc
+
+	var ring := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = 2.6
+	tor.outer_radius = 2.9
+	ring.mesh = tor
+	ring.material_override = mat
+	ring.position = _extraction_pos + Vector3(0, 0.40, 0)
+	add_child(ring)
+	_extraction_ring = ring
+
+	var light := OmniLight3D.new()
+	light.light_color = Color(0.20, 1.0, 0.40)
+	light.light_energy = 0.8
+	light.omni_range = 12.0
+	light.position = _extraction_pos + Vector3(0, 1.5, 0)
+	add_child(light)
+	_extraction_light = light
+
+	var area := Area3D.new()
+	var col := CollisionShape3D.new()
+	var shape := CylinderShape3D.new()
+	shape.radius = 3.0
+	shape.height = 3.0
+	col.shape = shape
+	area.add_child(col)
+	area.position = _extraction_pos + Vector3(0, 1.5, 0)
+	add_child(area)
+	area.body_entered.connect(_on_extraction_enter)
+	area.body_exited.connect(_on_extraction_exit)
+	_extraction_area = area
+
+
+func _on_extraction_enter(body: Node3D) -> void:
+	if body.is_in_group("player"):
+		_player_in_extraction = true
+
+
+func _on_extraction_exit(body: Node3D) -> void:
+	if body.is_in_group("player"):
+		_player_in_extraction = false
+		_extraction_hold = 0.0
+
+
+func _tick_extraction(delta: float) -> void:
+	if _extracted:
+		return
+	# Arm the pad once wave threshold is reached
+	if not _extraction_armed and _wave >= EXTRACT_MIN_WAVE:
+		_extraction_armed = true
+		if _extraction_disc != null:
+			var m := _extraction_disc.material_override as StandardMaterial3D
+			if m != null:
+				m.albedo_color = Color(0.15, 0.90, 0.35)
+				m.emission = Color(0.20, 1.0, 0.45)
+				m.emission_energy_multiplier = 3.5
+		if _extraction_light != null:
+			_extraction_light.light_energy = 4.0
+	# Animate ring
+	if _extraction_ring != null:
+		_extraction_ring.rotate_y(delta * 1.4)
+		var s := 1.0 + sin(Time.get_ticks_msec() * 0.003) * 0.05
+		_extraction_ring.scale = Vector3(s, 1.0, s)
+	# Pulse light
+	if _extraction_light != null and _extraction_armed:
+		_extraction_light.light_energy = 3.0 + sin(Time.get_ticks_msec() * 0.005) * 1.5
+	# Hold-to-extract
+	if _extraction_armed and _player_in_extraction:
+		_extraction_hold += delta
+		if _extraction_hold >= EXTRACT_HOLD_TIME:
+			_on_extraction_complete()
+	else:
+		_extraction_hold = max(0.0, _extraction_hold - delta * 2.0)
+
+
+func _on_extraction_complete() -> void:
+	if _extracted:
+		return
+	_extracted = true
+	SFX.play("wave_clear", 0.0)
+	_save_best()
+	_show_extraction_banner()
+	var t := get_tree().create_timer(4.5)
+	t.timeout.connect(func() -> void:
+		get_tree().reload_current_scene()
+	)
+
+
+func _show_extraction_banner() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 120
+	add_child(layer)
+	var label := Label.new()
+	label.text = "EXTRACTION SUCCESSFUL"
+	label.add_theme_font_size_override("font_size", 64)
+	label.add_theme_color_override("font_color", Color(0.30, 1.0, 0.55))
+	label.add_theme_color_override("font_outline_color", Color(0.02, 0.08, 0.03))
+	label.add_theme_constant_override("outline_size", 14)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(label)
+	var sub := Label.new()
+	sub.text = "SCORE " + str(_score) + "  •  WAVE " + str(_wave) + " BANKED"
+	sub.add_theme_font_size_override("font_size", 22)
+	sub.add_theme_color_override("font_color", Color(0.75, 1.0, 0.85))
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sub.offset_top = 300.0
+	sub.offset_bottom = 340.0
+	layer.add_child(sub)
+
+
+func _save_best() -> void:
+	var cfg := ConfigFile.new()
+	if _score > _best_score:
+		_best_score = _score
+	cfg.set_value("progress", "best_score", _best_score)
+	cfg.set_value("progress", "best_wave", _best_wave)
+	cfg.save(SAVE_PATH)
+
+
+func _load_best() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) == OK:
+		_best_score = int(cfg.get_value("progress", "best_score", 0))
+		_best_wave = int(cfg.get_value("progress", "best_wave", 0))
