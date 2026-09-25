@@ -7,6 +7,7 @@ const FLOOR_SIZE := 40.0
 # Wave system
 var _wave := 0
 var _score := 0
+var _kills := 0
 var _best_score := 0
 var _best_wave := 0
 var _enemies_alive := 0
