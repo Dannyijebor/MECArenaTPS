@@ -538,11 +538,12 @@ func _tick_player_walk(delta: float) -> void:
 	# Footsteps still fire off walk phase
 	var speed: float = Vector2(velocity.x, velocity.z).length()
 	if speed > 0.4 and is_on_floor():
-		_walk_phase += 3.2 * (speed / 5.5)
-		var step_idx: int = int(_walk_phase / PI)
+		# Advance phase by TIME, not frame — gives ~2 steps/sec at walk, ~4 at sprint
+		_walk_phase += (speed / 5.5) * 4.0 * delta
+		var step_idx: int = int(_walk_phase)
 		if step_idx != _last_step_idx:
 			_last_step_idx = step_idx
-			SFX.play("footstep", 3.0, randf_range(0.9, 1.12))
+			SFX.play("footstep", -3.0, randf_range(0.92, 1.08))
 
 func _add_clothing(color: Color) -> void:
 	# Shirt
