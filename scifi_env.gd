@@ -31,80 +31,111 @@ func build(parent: Node3D, size: float) -> void:
 # WALLS — 4 sides, 2 rows stacked, correct dimensions
 # ----------------------------------------------------------------
 func _build_walls(parent: Node3D) -> void:
-	var n_per_side: int = int(floor_size / WALL_LEN)
-	var row_ys: Array = []
-	for r in range(WALL_ROWS):
-		row_ys.append(WALL_H * 0.5 + r * WALL_H)
-	# North (-Z) — piece length runs along X, so rotate 90°
-	for y in row_ys:
-		for i in range(n_per_side):
-			var x: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-			_place(parent, "Walls/WallBand_Straight.gltf",
-				Vector3(x, y, -half), PI * 0.5,
-				Vector3(WALL_LEN, WALL_H, 0.5))
-	# South (+Z)
-	for y in row_ys:
-		for i in range(n_per_side):
-			var x: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-			_place(parent, "Walls/WallBand_Straight.gltf",
-				Vector3(x, y, half), PI * 0.5,
-				Vector3(WALL_LEN, WALL_H, 0.5))
-	# West (-X) — length runs along Z, no rotation
-	for y in row_ys:
-		for i in range(n_per_side):
-			var z: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-			_place(parent, "Walls/WallBand_Straight.gltf",
-				Vector3(-half, y, z), 0.0,
-				Vector3(0.5, WALL_H, WALL_LEN))
-	# East (+X)
-	for y in row_ys:
-		for i in range(n_per_side):
-			var z: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-			_place(parent, "Walls/WallBand_Straight.gltf",
-				Vector3(half, y, z), 0.0,
-				Vector3(0.5, WALL_H, WALL_LEN))
+	var piece_len := WALL_LEN
+	var n_per_side: int = int(floor_size / piece_len)
+	var half_inner := floor_size * 0.5 - 0.10
 
-# ----------------------------------------------------------------
-# CORNERS — 4 vertical stack joints
-# ----------------------------------------------------------------
-func _build_corners(parent: Node3D) -> void:
-	var corner_scn := "Walls/WallBand_Corner_Round_Inner.gltf"
-	var positions := [
-		Vector3(-half, WALL_H * 0.5, -half),
-		Vector3( half, WALL_H * 0.5, -half),
-		Vector3( half, WALL_H * 0.5,  half),
-		Vector3(-half, WALL_H * 0.5,  half),
+	# === 3 rows of wall panel (2.2m each = 6.6m ceiling height) ===
+	var wall_ys: Array = [
+		WALL_H * 0.5,
+		WALL_H * 1.5,
+		WALL_H * 2.5,
 	]
-	var rots := [0.0, -PI * 0.5, PI, PI * 0.5]
-	for i in range(4):
-		_place(parent, corner_scn, positions[i], rots[i])
+	for y in wall_ys:
+		# North (-Z) — piece rotated so length runs along X
+		for i in range(n_per_side):
+			var x: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+			_place(parent, "Walls/WallBand_Straight.gltf",
+				Vector3(x, y, -half_inner), PI * 0.5,
+				Vector3(piece_len, WALL_H, 0.45))
+		# South (+Z)
+		for i in range(n_per_side):
+			var x: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+			_place(parent, "Walls/WallBand_Straight.gltf",
+				Vector3(x, y, half_inner), PI * 0.5,
+				Vector3(piece_len, WALL_H, 0.45))
+		# West (-X)
+		for i in range(n_per_side):
+			var z: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+			_place(parent, "Walls/WallBand_Straight.gltf",
+				Vector3(-half_inner, y, z), 0.0,
+				Vector3(0.45, WALL_H, piece_len))
+		# East (+X)
+		for i in range(n_per_side):
+			var z: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+			_place(parent, "Walls/WallBand_Straight.gltf",
+				Vector3(half_inner, y, z), 0.0,
+				Vector3(0.45, WALL_H, piece_len))
 
-# ----------------------------------------------------------------
-# CEILING — trim pieces along all 4 top edges + center panel
-# ----------------------------------------------------------------
+	# === Bottom trim (metal base) ===
+	var bottom_y := 0.12
+	for i in range(n_per_side):
+		var x: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+		_place(parent, "Walls/BottomMetal_Straight.gltf", Vector3(x, bottom_y, -half_inner + 0.02), PI * 0.5)
+		_place(parent, "Walls/BottomMetal_Straight.gltf", Vector3(x, bottom_y, half_inner - 0.02), PI * 0.5)
+	var z_trim := -floor_size * 0.5 + piece_len * 0.5
+	for i in range(n_per_side):
+		var z: float = z_trim + i * piece_len
+		_place(parent, "Walls/BottomMetal_Straight.gltf", Vector3(-half_inner + 0.02, bottom_y, z), 0.0)
+		_place(parent, "Walls/BottomMetal_Straight.gltf", Vector3(half_inner - 0.02, bottom_y, z), 0.0)
+
+	# === Top trim (astra crown) at ceiling height ===
+	var top_y := WALL_H * 3.0 + 0.05
+	for i in range(n_per_side):
+		var x: float = -floor_size * 0.5 + piece_len * 0.5 + i * piece_len
+		_place(parent, "Walls/TopAstra_Straight.gltf", Vector3(x, top_y, -half_inner + 0.02), PI * 0.5)
+		_place(parent, "Walls/TopAstra_Straight.gltf", Vector3(x, top_y, half_inner - 0.02), PI * 0.5)
+	for i in range(n_per_side):
+		var z: float = z_trim + i * piece_len
+		_place(parent, "Walls/TopAstra_Straight.gltf", Vector3(-half_inner + 0.02, top_y, z), 0.0)
+		_place(parent, "Walls/TopAstra_Straight.gltf", Vector3(half_inner - 0.02, top_y, z), 0.0)
+
+func _build_corners(parent: Node3D) -> void:
+	var half := floor_size * 0.5 - 0.10
+	var corner_positions := [
+		{"pos": Vector3(-half, 0, -half), "rot": 0.0},
+		{"pos": Vector3( half, 0, -half), "rot": -PI * 0.5},
+		{"pos": Vector3( half, 0,  half), "rot": PI},
+		{"pos": Vector3(-half, 0,  half), "rot": PI * 0.5},
+	]
+	for c in corner_positions:
+		for row in range(3):
+			var y: float = WALL_H * 0.5 + row * WALL_H
+			var pos: Vector3 = c.pos + Vector3(0, y, 0)
+			_place(parent, "Walls/WallBand_Corner_Round_Inner.gltf", pos, c.rot)
+
 func _build_ceiling(parent: Node3D) -> void:
-	var n_per_side: int = int(floor_size / WALL_LEN)
-	var y := wall_h + 0.05
-	# North + South trim
-	for i in range(n_per_side):
-		var x: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-		_place(parent, "Walls/TopSimple_Straight.gltf", Vector3(x, y, -half), PI * 0.5)
-		_place(parent, "Walls/TopSimple_Straight.gltf", Vector3(x, y, half), PI * 0.5)
-	# West + East trim
-	for i in range(n_per_side):
-		var z: float = -floor_size * 0.5 + WALL_LEN * 0.5 + i * WALL_LEN
-		_place(parent, "Walls/TopSimple_Straight.gltf", Vector3(-half, y, z), 0.0)
-		_place(parent, "Walls/TopSimple_Straight.gltf", Vector3(half, y, z), 0.0)
-	# Center cross — 3x3 grid of TopCables_Hanging for industrial feel
-	for x in [-10.0, 0.0, 10.0]:
-		for z in [-10.0, 0.0, 10.0]:
-			if x == 0.0 and z == 0.0:
-				continue
-			_place(parent, "Walls/TopCables_Straight_Hanging.gltf", Vector3(x, wall_h - 0.3, z), 0.0)
+	var wall_h := WALL_H * 3.0
+	var half := floor_size * 0.5
+	# Solid ceiling plate
+	var ceiling := MeshInstance3D.new()
+	var cbox := BoxMesh.new()
+	cbox.size = Vector3(floor_size, 0.20, floor_size)
+	ceiling.mesh = cbox
+	var cmat := StandardMaterial3D.new()
+	cmat.albedo_color = Color(0.09, 0.075, 0.06)
+	cmat.roughness = 0.9
+	ceiling.material_override = cmat
+	ceiling.position = Vector3(0, wall_h + 0.10, 0)
+	parent.add_child(ceiling)
+	# Ceiling collision — physical barrier so nothing escapes
+	var cbody := StaticBody3D.new()
+	var ccol := CollisionShape3D.new()
+	var cshape := BoxShape3D.new()
+	cshape.size = Vector3(floor_size, 0.20, floor_size)
+	ccol.shape = cshape
+	cbody.add_child(ccol)
+	cbody.position = Vector3(0, wall_h + 0.10, 0)
+	parent.add_child(cbody)
+	# Hanging cable runs across the ceiling
+	var runs := [-12.0, -4.0, 4.0, 12.0]
+	for x in runs:
+		_place(parent, "Walls/TopCables_Straight_Hanging.gltf",
+			Vector3(x, wall_h - 0.35, 0), 0.0)
+	for z in runs:
+		_place(parent, "Walls/TopCables_Straight_Hanging.gltf",
+			Vector3(0, wall_h - 0.35, z), PI * 0.5)
 
-# ----------------------------------------------------------------
-# FLOOR TRIM — dark metal plates around perimeter
-# ----------------------------------------------------------------
 func _build_floor_trim(parent: Node3D) -> void:
 	var y := 0.02
 	var edge := floor_size * 0.5 - 2.0
@@ -217,7 +248,7 @@ func _build_ceiling_lights(parent: Node3D) -> void:
 	]
 	for p in positions:
 		var light := OmniLight3D.new()
-		light.light_color = Color(0.85, 0.80, 1.0)
+		light.light_color = Color(1.0, 0.88, 0.68)
 		light.light_energy = 1.8
 		light.omni_range = 14.0
 		light.position = p
@@ -228,7 +259,7 @@ func _build_ceiling_lights(parent: Node3D) -> void:
 # HAZARD STRIPES — glowing trim along the wall base
 # ----------------------------------------------------------------
 func _build_hazard_stripes(parent: Node3D) -> void:
-	var stripe_col := Color(1.0, 0.55, 0.15)
+	var stripe_col := Color(1.0, 0.72, 0.35)
 	var y := 0.08
 	var length := floor_size - 1.0
 	var sides := [

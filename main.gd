@@ -12,7 +12,7 @@ const WAVE_MODIFIERS := [
 ]
 var _active_modifier: Dictionary = {}
 
-const FLOOR_SIZE := 40.0
+const FLOOR_SIZE := 80.0
 
 # Wave system
 var _wave := 0
@@ -32,7 +32,7 @@ var _extraction_area: Area3D = null
 var _extraction_light: OmniLight3D = null
 var _extraction_ring: MeshInstance3D = null
 var _extraction_disc: MeshInstance3D = null
-var _extraction_pos := Vector3(24.0, 0.05, 24.0)
+var _extraction_pos := Vector3(-30.0, 0.05, 26.0)
 var _player_in_extraction := false
 var _extraction_hold := 0.0
 var _extraction_armed := false
@@ -43,17 +43,14 @@ var _ambient_player: AudioStreamPlayer = null
 var _distant_timer: float = 0.0
 
 func _ready() -> void:
-	_build_floor()
+	# _build_floor()  # arena.gd builds the floor
 	_build_player()
-	_build_lighting()
+	# _build_lighting()  # arena.gd lights the room
 	_build_environment()
-	_build_scifi_env()
-	_build_neon_bazaar()
-	_build_platforms()
-	_build_details()
+	_build_arena()
 	_build_extraction_pad()
 	_build_dannys_shrine()
-	_build_void_edges()
+	# _build_void_edges()  # disabled — solid ceiling now
 	_build_touch_controls()
 	_build_ambient()
 	# Wait a frame so UI is in the tree, then cache it
@@ -69,14 +66,14 @@ func _build_environment() -> void:
 	sky.sky_material = ProceduralSkyMaterial.new()
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.10
+	e.ambient_light_energy = 0.28
 	env.environment = e
 	add_child(env)
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.15, 0.04, 0.14)
+	e.fog_light_color = Color(0.15, 0.10, 0.06)
 	e.fog_light_energy = 0.7
-	e.fog_density = 0.075
-	e.fog_sky_affect = 0.75
+	e.fog_density = 0.028
+	e.fog_sky_affect = 0.4
 
 
 func _build_floor() -> void:
@@ -85,7 +82,7 @@ func _build_floor() -> void:
 	plane.size = Vector2(FLOOR_SIZE, FLOOR_SIZE)
 	floor_mesh.mesh = plane
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.035, 0.030, 0.045)
+	mat.albedo_color = Color(0.22, 0.17, 0.12)
 	mat.roughness = 0.15
 	mat.metallic = 0.55
 	mat.rim_enabled = true
@@ -105,7 +102,7 @@ func _build_player() -> void:
 	var player_script = load("res://player.gd")
 	var player := CharacterBody3D.new()
 	player.set_script(player_script)
-	player.position = Vector3(0, 1.0, 0)
+	player.position = Vector3(0, 1.5, 0)
 	player.name = "Player"
 	player.add_to_group("player")
 
@@ -246,10 +243,10 @@ func _build_wall(x: float, z: float, w: float, d: float, h: float, is_cover: boo
 func _spawn_wave_enemies(count: int) -> void:
 	var enemy_script = load("res://enemy.gd")
 	var corners := [
-		Vector3(-15.0, 1.0, -15.0),
-		Vector3( 15.0, 1.0, -15.0),
-		Vector3(-15.0, 1.0,  15.0),
-		Vector3( 15.0, 1.0,  15.0),
+		Vector3(-32.0, 1.0, -32.0),
+		Vector3( 32.0, 1.0, -32.0),
+		Vector3(-32.0, 1.0,  32.0),
+		Vector3( 32.0, 1.0,  32.0),
 	]
 	var bias: int = int(_active_modifier.get("bias", 0))
 	var speed_mult: float = float(_active_modifier.get("speed", 1.0))
@@ -351,7 +348,7 @@ func _start_wave(n: int) -> void:
 	var base_count := 3 + (n - 1) * 2
 	var count: int = max(2, int(round(float(base_count) * float(_active_modifier.get("count", 1.0)))))
 	_spawn_wave_enemies(count)
-	_maybe_spawn_ghost(n)
+	# _maybe_spawn_ghost(n)  # disabled — needs fix
 
 
 func _on_enemy_died() -> void:
@@ -713,11 +710,13 @@ func _build_danny_sign() -> void:
 
 func _build_ambient() -> void:
 	_ambient_player = AudioStreamPlayer.new()
-	var stream: AudioStream = load("res://sounds/ambient_hum.wav")
+	var stream: AudioStream = load("res://sounds/ambient_music.ogg")
+	if stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
 	if stream == null:
 		return
 	_ambient_player.stream = stream
-	_ambient_player.volume_db = -22.0
+	_ambient_player.volume_db = -24.0
 	_ambient_player.finished.connect(func() -> void:
 		if is_instance_valid(_ambient_player):
 			_ambient_player.play()
@@ -883,26 +882,24 @@ func _build_neon_bazaar() -> void:
 
 
 func _build_bazaar_lights() -> void:
-	# Magenta + cyan cross-lights — the signature neon-grunge palette
-	var magenta := OmniLight3D.new()
-	magenta.light_color = Color(1.0, 0.15, 0.65)
-	magenta.light_energy = 4.5
-	magenta.omni_range = 42.0
-	magenta.position = Vector3(-14, 8, -14)
-	add_child(magenta)
-
-	var cyan := OmniLight3D.new()
-	cyan.light_color = Color(0.10, 0.85, 1.0)
-	cyan.light_energy = 4.5
-	cyan.omni_range = 42.0
-	cyan.position = Vector3(14, 8, 14)
-	add_child(cyan)
-
-	# Soft magenta rim on the ceiling
+	# Warm amber key + soft cream fill — "at home" industrial feel
+	var amber := OmniLight3D.new()
+	amber.light_color = Color(1.0, 0.78, 0.45)
+	amber.light_energy = 4.8
+	amber.omni_range = 42.0
+	amber.position = Vector3(-14, 8, -14)
+	add_child(amber)
+	var cream := OmniLight3D.new()
+	cream.light_color = Color(1.0, 0.92, 0.78)
+	cream.light_energy = 4.2
+	cream.omni_range = 42.0
+	cream.position = Vector3(14, 8, 14)
+	add_child(cream)
+	# Ceiling soft sun-warm
 	var top := OmniLight3D.new()
-	top.light_color = Color(0.9, 0.25, 0.7)
-	top.light_energy = 1.6
-	top.omni_range = 30.0
+	top.light_color = Color(1.0, 0.88, 0.62)
+	top.light_energy = 2.2
+	top.omni_range = 34.0
 	top.position = Vector3(0, 11.0, 0)
 	add_child(top)
 
@@ -910,9 +907,9 @@ func _build_bazaar_lights() -> void:
 func _build_neon_signs() -> void:
 	# 8 storefront signs around the walls
 	var palette := [
-		Color(1.0, 0.15, 0.65),   # magenta
-		Color(0.10, 0.85, 1.0),   # cyan
-		Color(1.0, 0.85, 0.15),   # sodium yellow
+		Color(1.0, 0.72, 0.35),   # warm amber
+		Color(1.0, 0.88, 0.60),   # soft cream
+		Color(0.85, 0.55, 0.30),  # toasted wood
 	]
 	var half := FLOOR_SIZE * 0.5 - 1.0
 	var placements := [
@@ -1029,18 +1026,16 @@ func _add_hand_part(pos: Vector3, size: Vector3, mat: StandardMaterial3D) -> voi
 	add_child(body)
 
 
-func _build_scifi_env() -> void:
-	var env_script: Script = load("res://scifi_env.gd")
-	if env_script == null:
-		print("[scifi] env script missing")
+func _build_arena() -> void:
+	var script: Script = load("res://arena.gd")
+	if script == null:
+		print("[arena] script missing")
 		return
-	var env: Node = Node.new()
-	env.set_script(env_script)
-	add_child(env)
-	env.call("build", self, FLOOR_SIZE)
-	print("[scifi] environment built")
-
-
+	var arena := Node3D.new()
+	arena.set_script(script)
+	add_child(arena)
+	arena.call("build", self)
+	print("[arena] spawn complete")
 
 
 func _spawn_loot_drop(pos: Vector3) -> void:
@@ -1180,7 +1175,7 @@ func _build_dannys_shrine() -> void:
 		return
 	var shrine := Node3D.new()
 	shrine.set_script(shrine_script)
-	shrine.call("setup", Vector3(-15.0, 0, -15.0))
+	shrine.call("setup", Vector3(-30.0, 0, -26.0))
 	shrine.position = Vector3(-15.0, 0, -15.0)
 	add_child(shrine)
 	print("[shrine] Danny's Shrine built at NW corner")
@@ -1204,9 +1199,9 @@ func _build_void_edges() -> void:
 	(stars.mesh as SphereMesh).radius = 0.04
 	(stars.mesh as SphereMesh).height = 0.08
 	var star_mat := StandardMaterial3D.new()
-	star_mat.albedo_color = Color(0.85, 0.92, 1.0)
+	star_mat.albedo_color = Color(1.0, 0.95, 0.85)
 	star_mat.emission_enabled = true
-	star_mat.emission = Color(0.75, 0.85, 1.0)
+	star_mat.emission = Color(1.0, 0.90, 0.75)
 	star_mat.emission_energy_multiplier = 3.0
 	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	(stars.mesh as SphereMesh).material = star_mat

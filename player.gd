@@ -25,7 +25,7 @@ const CROUCH_MULT := 0.5
 const SLIDE_MULT := 2.1
 const SLIDE_TIME := 0.65
 const SLIDE_COOLDOWN := 1.0
-const FOV_BASE := 75.0
+const FOV_BASE := 55.0
 const FOV_SPRINT := 88.0
 const FOV_SLIDE := 96.0
 const ADS_FOV := 55.0
@@ -74,7 +74,7 @@ var _model_root: Node3D = null
 var hit_marker_time := 0.0
 var hit_marker_headshot := false
 var damage_numbers: Array = []
-var _cam_base_pos := Vector3(0, 0.6, 4.0)
+var _cam_base_pos := Vector3(0, 0.70, 1.55)
 var current_weapon_id: String = WeaponDB.RIFLE
 var ammo: int = 0
 var _reload_timer: float = 0.0
@@ -468,6 +468,7 @@ func _setup_human_visual() -> void:
 			print("[player] rig attach: ", ok)
 			if ok:
 				_anim.play("mixamo/idle")
+	_attach_gun_to_hand(inst)
 
 	# Disable procedural animation — bones are Mixamo, code expects Quaternius names
 	_use_animations = true
@@ -541,7 +542,7 @@ func _tick_player_walk(delta: float) -> void:
 		var step_idx: int = int(_walk_phase / PI)
 		if step_idx != _last_step_idx:
 			_last_step_idx = step_idx
-			SFX.play("footstep", -12.0, randf_range(0.9, 1.12))
+			SFX.play("footstep", 3.0, randf_range(0.9, 1.12))
 
 func _add_clothing(color: Color) -> void:
 	# Shirt
@@ -631,3 +632,54 @@ func _tick_animation_state() -> void:
 	_anim.speed_scale = speed_mult
 	if _anim.current_animation != target:
 		_anim.play(target, 0.22)
+
+
+func _attach_gun_to_hand(model: Node3D) -> void:
+	# SWAT ships TWO skeletons — face (7 bones) + body (51 bones). We want the body.
+	var skel: Skeleton3D = null
+	var best_bone_count: int = 0
+	var stack: Array = [model]
+	while stack.size() > 0:
+		var n: Node = stack.pop_back()
+		if n is Skeleton3D:
+			var s := n as Skeleton3D
+			if s.get_bone_count() > best_bone_count:
+				best_bone_count = s.get_bone_count()
+				skel = s
+		for c in n.get_children():
+			stack.append(c)
+	if skel == null:
+		return
+	print("[player] using skeleton with ", best_bone_count, " bones")
+	var hand_idx: int = -1
+	# Search every bone in the skeleton for a name matching "RightHand" exactly
+	for i in range(skel.get_bone_count()):
+		var bn: String = skel.get_bone_name(i)
+		var lower: String = bn.to_lower()
+		if lower.ends_with("righthand") or lower.ends_with("hand_r") or lower.ends_with("hand.r") or lower.ends_with("hand_r_end") or lower.ends_with("r_hand"):
+			hand_idx = i
+			print("[player] gun hand bone found: ", bn, " (idx ", i, ")")
+			break
+	if hand_idx < 0:
+		# Fallback: search for anything with "hand" and "r" in name
+		for i in range(skel.get_bone_count()):
+			var bn2: String = skel.get_bone_name(i).to_lower()
+			if "hand" in bn2 and ("r" in bn2 or "right" in bn2):
+				hand_idx = i
+				print("[player] gun hand bone (fuzzy): ", skel.get_bone_name(i))
+				break
+	if hand_idx < 0:
+		hand_idx = skel.get_bone_count() - 1
+		print("[player] gun hand fallback: ", skel.get_bone_name(hand_idx))
+	var att := BoneAttachment3D.new()
+	att.bone_idx = hand_idx
+	att.bone_name = skel.get_bone_name(hand_idx)
+	skel.add_child(att)
+	var gun_script: Script = load("res://gun.gd")
+	if gun_script == null:
+		return
+	var gun: Node3D = gun_script.build(att)
+	# Orient for Mixamo hand — rotate so barrel points forward
+	gun.rotation_degrees = Vector3(0, 90, 90)
+	gun.position = Vector3(0.0, 0.04, 0.02)
+	gun.scale = Vector3(0.9, 0.9, 0.9)

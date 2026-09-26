@@ -149,7 +149,9 @@ func _find_skeleton() -> void:
 		var ok: bool = rig_script.attach(_anim, _skeleton)
 		print("[enemy] rig attach: ", ok)
 		if ok:
+			_use_animations = true
 			_anim.play("mixamo/idle")
+	_attach_gun_to_hand(_body_root)
 	_add_clothing(_t_color)
 	if _skeleton == null:
 		return
@@ -631,3 +633,53 @@ func _tick_animation_state() -> void:
 	_anim.speed_scale = speed_mult
 	if _anim.current_animation != target:
 		_anim.play(target, 0.25)
+
+
+func _attach_gun_to_hand(model: Node3D) -> void:
+	if model == null:
+		return
+	var skel: Skeleton3D = null
+	var best_bone_count: int = 0
+	var stack: Array = [model]
+	while stack.size() > 0:
+		var n: Node = stack.pop_back()
+		if n is Skeleton3D:
+			var s := n as Skeleton3D
+			if s.get_bone_count() > best_bone_count:
+				best_bone_count = s.get_bone_count()
+				skel = s
+		for c in n.get_children():
+			stack.append(c)
+	if skel == null:
+		skel = _skeleton
+	if skel == null:
+		return
+	var hand_idx: int = -1
+	for i in range(skel.get_bone_count()):
+		var bn: String = skel.get_bone_name(i)
+		var lower: String = bn.to_lower()
+		if lower.ends_with("righthand") or lower.ends_with("hand_r") or lower.ends_with("hand.r") or lower.ends_with("r_hand"):
+			hand_idx = i
+			print("[enemy] gun hand bone found: ", bn, " (idx ", i, ")")
+			break
+	if hand_idx < 0:
+		for i in range(skel.get_bone_count()):
+			var bn2: String = skel.get_bone_name(i).to_lower()
+			if "hand" in bn2 and ("r" in bn2 or "right" in bn2):
+				hand_idx = i
+				print("[enemy] gun hand bone (fuzzy): ", skel.get_bone_name(i))
+				break
+	if hand_idx < 0:
+		hand_idx = skel.get_bone_count() - 1
+		print("[enemy] gun hand fallback: ", skel.get_bone_name(hand_idx))
+	var att := BoneAttachment3D.new()
+	att.bone_idx = hand_idx
+	att.bone_name = skel.get_bone_name(hand_idx)
+	skel.add_child(att)
+	var gun_script: Script = load("res://gun.gd")
+	if gun_script == null:
+		return
+	var gun: Node3D = gun_script.build(att)
+	gun.rotation_degrees = Vector3(0, 90, 90)
+	gun.position = Vector3(0.0, 0.04, 0.02)
+	gun.scale = Vector3(0.9, 0.9, 0.9)
