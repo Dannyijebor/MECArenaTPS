@@ -624,7 +624,7 @@ func _apply_type() -> void:
 			_t_hp = 30
 			_t_range = 20.0
 			_t_cd = 0.28
-			_t_dmg = 4
+			_t_dmg = 3
 			_t_color = Color(0.55, 0.16, 0.16)
 		1:  # RUSHER — fast, no gun, melee
 			_t_speed_mult = 2.4
@@ -638,19 +638,19 @@ func _apply_type() -> void:
 			_t_hp = 100
 			_t_range = 16.0
 			_t_cd = 0.38
-			_t_dmg = 10
+			_t_dmg = 6
 			_t_color = Color(0.42, 0.14, 0.62)
 		3:  # SNIPER — long range, one hard shot
 			_t_speed_mult = 1.35
 			_t_hp = 25
 			_t_range = 36.0
 			_t_cd = 0.85
-			_t_dmg = 18
+			_t_dmg = 11
 			_t_color = Color(0.92, 0.72, 0.15)
 	if is_elite:
 		_t_hp = int(float(_t_hp) * 3.5)
 		_t_speed_mult *= 1.45
-		_t_dmg = int(float(_t_dmg) * 1.55)
+		_t_dmg = int(float(_t_dmg) * 1.25)
 		_t_cd *= 0.75
 		hp = _t_hp
 	else:
@@ -780,7 +780,7 @@ func apply_boss_stats() -> void:
 	# Boss gets a big HP + damage boost on top of elite
 	_t_hp = int(float(_t_hp) * 2.0)
 	hp = _t_hp
-	_t_dmg = int(float(_t_dmg) * 1.5)
+	_t_dmg = int(float(_t_dmg) * 1.25)
 	_t_cd *= 0.85
 	# Add a bright red glow so the boss stands out
 	var glow := OmniLight3D.new()

@@ -48,7 +48,7 @@ var _mic_touch_id := -1
 var _ability_touch_id := -1
 
 var _wave: int = 1
-var _lives: int = 3
+var _lives: int = 5
 var _kills: int = 0
 var _score: int = 0
 var _best_score: int = 0
@@ -405,7 +405,7 @@ func _draw_hp_and_stats(vp: Vector2) -> void:
 	var lives_col := Color(1.0, 0.35, 0.35)
 	if _lives > 1:
 		lives_col = Color(0.55, 0.95, 1.0)
-	draw_string(font, Vector2(vp.x - 260, 182), "LIVES " + str(_lives) + " / 3", HORIZONTAL_ALIGNMENT_RIGHT, 240, 17, lives_col)
+	draw_string(font, Vector2(vp.x - 260, 182), "LIVES " + str(_lives) + " / 5", HORIZONTAL_ALIGNMENT_RIGHT, 240, 17, lives_col)
 	draw_string(font, Vector2(bar_pos.x, bar_pos.y - 6), "HP " + str(int(hp)) + "/" + str(int(max_hp)), HORIZONTAL_ALIGNMENT_LEFT, 200, 14, Color(0.9, 0.9, 0.9))
 
 func _draw_death_overlay(vp: Vector2) -> void:

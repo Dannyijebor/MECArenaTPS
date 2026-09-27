@@ -16,10 +16,10 @@ const FIRE_COOLDOWN := 0.14
 const AUTO_AIM_ANGLE := 12.0
 const AUTO_AIM_RANGE := 40.0
 
-const MAX_HP := 100
-const REGEN_DELAY := 5.0
-const REGEN_RATE := 8.0
-const IFrames_TIME := 0.9
+const MAX_HP := 150
+const REGEN_DELAY := 3.5
+const REGEN_RATE := 14.0
+const IFrames_TIME := 1.4
 const SPRINT_MULT := 1.55
 const CROUCH_MULT := 0.5
 const SLIDE_MULT := 2.1

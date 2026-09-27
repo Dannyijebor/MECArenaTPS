@@ -21,7 +21,7 @@ var _score := 0
 var _loot_haul := 0
 var _loot_tier_counts := [0, 0, 0, 0]
 var _kills := 0
-var _lives: int = 3
+var _lives: int = 5
 var _game_over: bool = false
 var _best_score := 0
 var _best_wave := 0
@@ -300,7 +300,7 @@ func _spawn_wave_enemies(count: int) -> void:
 		var pos: Vector3 = base + jitter
 		var e := _spawn_enemy_at(pos, enemy_script, types[i])
 		if e != null and _wave >= 3:
-			var hp_bonus: float = 1.0 + float(max(0, _wave - 1)) * 0.30
+			var hp_bonus: float = 1.0 + float(max(0, _wave - 1)) * 0.18
 			var cur_hp_v: Variant = e.get("hp")
 			if cur_hp_v != null:
 				e.set("hp", int(float(cur_hp_v) * hp_bonus))
