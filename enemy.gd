@@ -428,21 +428,24 @@ func _spawn_tracer(from: Vector3, to: Vector3) -> void:
 	)
 
 func _tick_combat(delta: float) -> void:
+	# Rushers are melee-only (range 0)
 	if _t_range <= 0.0:
 		return
 	if _player == null or hp <= 0:
 		return
+	# Always count down the cooldown — no state gating
 	_shoot_cd -= delta
 	if _shoot_cd > 0.0:
 		return
+	# Range check
 	var d := global_position.distance_to(_player.global_position)
 	if d < SHOOT_MIN_DIST or d > _t_range:
 		return
+	# LOS check — only walls block
 	if not _has_los_to_player():
 		return
-	# Fire rate boost per wave — all enemies fire faster later
-	var wave_boost: float = 1.0 - min(0.35, float(get_tree().current_scene.get("_wave") if get_tree().current_scene else 1) * 0.03)
-	_shoot_cd = _t_cd * max(0.5, wave_boost)
+	# Fire! Every enemy fires independently the moment cooldown hits 0
+	_shoot_cd = _t_cd
 	_try_shoot_player()
 
 
@@ -600,7 +603,7 @@ func _apply_type() -> void:
 			_t_speed_mult = 1.5
 			_t_hp = 30
 			_t_range = 20.0
-			_t_cd = 0.35
+			_t_cd = 0.28
 			_t_dmg = 4
 			_t_color = Color(0.55, 0.16, 0.16)
 		1:  # RUSHER — fast, no gun, melee
@@ -614,14 +617,14 @@ func _apply_type() -> void:
 			_t_speed_mult = 1.15
 			_t_hp = 100
 			_t_range = 16.0
-			_t_cd = 0.45
+			_t_cd = 0.38
 			_t_dmg = 10
 			_t_color = Color(0.42, 0.14, 0.62)
 		3:  # SNIPER — long range, one hard shot
 			_t_speed_mult = 1.35
 			_t_hp = 25
 			_t_range = 36.0
-			_t_cd = 1.0
+			_t_cd = 0.85
 			_t_dmg = 18
 			_t_color = Color(0.92, 0.72, 0.15)
 	if is_elite:

@@ -46,6 +46,7 @@ var _ads_touch_id := -1
 var _mic_touch_id := -1
 
 var _wave: int = 1
+var _lives: int = 3
 var _kills: int = 0
 var _score: int = 0
 var _best_score: int = 0
@@ -70,6 +71,11 @@ func _on_viewport_resized() -> void:
 	set_deferred("size", get_viewport().get_visible_rect().size)
 
 func _process(delta: float) -> void:
+	queue_redraw()
+
+
+func set_lives(n: int) -> void:
+	_lives = n
 	queue_redraw()
 
 
@@ -293,6 +299,7 @@ func _draw() -> void:
 	_draw_extraction_hud()
 	_draw_carry_bar(vp)
 	_draw_hp_and_stats(vp)
+	_draw_death_overlay(vp)
 
 func _draw_joystick(vp: Vector2) -> void:
 	var jc := _joystick_center()
@@ -374,10 +381,39 @@ func _draw_hp_and_stats(vp: Vector2) -> void:
 	draw_arc(Rect2(bar_pos, Vector2(bar_w, bar_h)).get_center(), 0, 0, 0, 1, Color(0,0,0,0))
 	draw_string(font, Vector2(vp.x - 260, 52), "SCORE " + str(_score), HORIZONTAL_ALIGNMENT_RIGHT, 240, 26, Color(0.55, 0.95, 1.0))
 	draw_string(font, Vector2(vp.x - 260, 82), "KILLS " + str(_kills), HORIZONTAL_ALIGNMENT_RIGHT, 240, 20, Color.WHITE)
-	draw_string(font, Vector2(vp.x - 260, 108), "WAVE " + str(_wave), HORIZONTAL_ALIGNMENT_RIGHT, 240, 20, Color(0.3, 0.9, 1.0))
+	draw_string(font, Vector2(vp.x - 260, 108), "WAVE " + str(_wave) + "  - ENDLESS", HORIZONTAL_ALIGNMENT_RIGHT, 240, 20, Color(0.3, 0.9, 1.0))
+	# Wave speed indicator
+	var wave_speed_pct: int = int(min(300.0, (_wave - 1) * 10.0))
+	if wave_speed_pct > 0:
+		draw_string(font, Vector2(vp.x - 260, 128), "ENEMY SPEED +" + str(wave_speed_pct) + "%", HORIZONTAL_ALIGNMENT_RIGHT, 240, 13, Color(1.0, 0.65, 0.35))
 	draw_string(font, Vector2(vp.x - 260, 134), "BEST " + str(_best_score) + " W" + str(_best_wave), HORIZONTAL_ALIGNMENT_RIGHT, 240, 15, Color(0.65, 0.75, 0.85, 0.85))
 	draw_string(font, Vector2(vp.x - 260, 158), "LOOT " + str(_loot_haul), HORIZONTAL_ALIGNMENT_RIGHT, 240, 15, Color(1.0, 0.82, 0.30, 0.95))
+	var lives_col := Color(1.0, 0.35, 0.35)
+	if _lives > 1:
+		lives_col = Color(0.55, 0.95, 1.0)
+	draw_string(font, Vector2(vp.x - 260, 182), "LIVES " + str(_lives) + " / 3", HORIZONTAL_ALIGNMENT_RIGHT, 240, 17, lives_col)
 	draw_string(font, Vector2(bar_pos.x, bar_pos.y - 6), "HP " + str(int(hp)) + "/" + str(int(max_hp)), HORIZONTAL_ALIGNMENT_LEFT, 200, 14, Color(0.9, 0.9, 0.9))
+
+func _draw_death_overlay(vp: Vector2) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var dying_v: Variant = _player.get("_dying")
+	if dying_v == null or not bool(dying_v):
+		return
+	var font := ThemeDB.fallback_font
+	# Dark red vignette over the whole screen
+	draw_rect(Rect2(0, 0, vp.x, vp.y), Color(0.12, 0.01, 0.02, 0.62))
+	# Big centered YOU DIED
+	var title_y: float = vp.y * 0.40
+	draw_string(font, Vector2(0, title_y), "YOU DIED", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 96, Color(1.0, 0.22, 0.22))
+	# Subtitle
+	var sub_y: float = vp.y * 0.53
+	draw_string(font, Vector2(0, sub_y), "Respawning...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 30, Color(0.88, 0.88, 0.92))
+	# Thin red line under the title
+	var line_w := 320.0
+	var line_x := (vp.x - line_w) * 0.5
+	draw_line(Vector2(line_x, title_y + 20), Vector2(line_x + line_w, title_y + 20), Color(1.0, 0.25, 0.25, 0.75), 2.0)
+
 
 func _draw_weapon_hud(vp: Vector2) -> void:
 	var font := ThemeDB.fallback_font

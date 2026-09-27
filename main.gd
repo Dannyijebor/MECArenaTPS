@@ -16,10 +16,13 @@ const FLOOR_SIZE := 80.0
 
 # Wave system
 var _wave := 0
+var _endless_mode: bool = true
 var _score := 0
 var _loot_haul := 0
 var _loot_tier_counts := [0, 0, 0, 0]
 var _kills := 0
+var _lives: int = 3
+var _game_over: bool = false
 var _best_score := 0
 var _best_wave := 0
 var _enemies_alive := 0
@@ -271,7 +274,7 @@ func _spawn_wave_enemies(count: int) -> void:
 	var speed_mult: float = float(_active_modifier.get("speed", 1.0))
 	# Additional per-wave speed boost beyond wave 5
 	if _wave >= 6:
-		speed_mult *= 1.0 + float(_wave - 3) * 0.07
+		speed_mult *= 1.0 + float(max(0, _wave - 1)) * 0.10
 	var types: Array = []
 	for i in range(count):
 		var t := 0
@@ -292,7 +295,7 @@ func _spawn_wave_enemies(count: int) -> void:
 		var pos: Vector3 = base + jitter
 		var e := _spawn_enemy_at(pos, enemy_script, types[i])
 		if e != null and _wave >= 3:
-			var hp_bonus: float = 1.0 + float(_wave - 2) * 0.25
+			var hp_bonus: float = 1.0 + float(max(0, _wave - 1)) * 0.30
 			var cur_hp_v: Variant = e.get("hp")
 			if cur_hp_v != null:
 				e.set("hp", int(float(cur_hp_v) * hp_bonus))
@@ -396,9 +399,61 @@ func _on_enemy_died() -> void:
 	SFX.play("wave_clear", -4.0)
 
 func _on_player_died() -> void:
-	# Freeze input briefly, then respawn
+	if _game_over:
+		return
+	_lives -= 1
+	print("[lives] died. remaining: ", _lives)
+	_save_best()
+	var player: Node = get_tree().get_first_node_in_group("player")
+	if player != null and player.has_method("set_carry_weight"):
+		player.call("set_carry_weight", 0.0)
+	# Push lives to HUD
+	if _ui != null and _ui.has_method("set_lives"):
+		_ui.call("set_lives", _lives)
+	if _lives <= 0:
+		_game_over = true
+		_show_game_over()
+		return
+	# Still have lives - respawn
 	var t := get_tree().create_timer(2.0)
-	t.timeout.connect(func(): _respawn_player())
+	t.timeout.connect(func() -> void: _respawn_player())
+
+
+func _show_game_over() -> void:
+	print("[game] out of lives - returning to lobby")
+	var layer := CanvasLayer.new()
+	layer.layer = 130
+	add_child(layer)
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.08, 0.01, 0.02, 0.85)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(overlay)
+	var title := Label.new()
+	title.text = "GAME OVER"
+	title.add_theme_font_size_override("font_size", 88)
+	title.add_theme_color_override("font_color", Color(1.0, 0.20, 0.20))
+	title.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
+	title.add_theme_constant_override("outline_size", 16)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(title)
+	var sub := Label.new()
+	sub.text = "Returning to lobby..."
+	sub.add_theme_font_size_override("font_size", 24)
+	sub.add_theme_color_override("font_color", Color(0.88, 0.88, 0.92))
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sub.offset_top = 480.0
+	sub.offset_bottom = 520.0
+	layer.add_child(sub)
+	var t := get_tree().create_timer(3.5)
+	t.timeout.connect(func() -> void:
+		if NetworkManager != null:
+			NetworkManager.leave()
+		get_tree().reload_current_scene()
+	)
+
 
 func _respawn_player() -> void:
 	var player := get_tree().get_first_node_in_group("player")
