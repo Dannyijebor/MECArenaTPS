@@ -38,6 +38,7 @@ var _player: Node3D = null
 var _hit_flash := 0.0
 var _dying := false
 var is_elite: bool = false
+var boss_variant: int = -1
 var _walk_phase: float = 0.0
 var _last_step_idx: int = 0
 var _contact_cd := 0.0
@@ -91,16 +92,35 @@ func _ready() -> void:
 	_player = get_tree().get_first_node_in_group("player") as Node3D
 
 func _build_visual() -> void:
-	if _model_scene == null:
-		var loaded: Resource = load("res://models/avatars/warzombie.glb")
+	# Boss variants load different models — bypass static cache when needed
+	var want_model := "res://models/avatars/warzombie.glb"
+	if boss_variant == 0:
+		want_model = "res://models/avatars/bosses/mutant.fbx"
+	elif boss_variant == 1:
+		want_model = "res://models/avatars/bosses/warrok.fbx"
+	var model_scene: PackedScene = null
+	if boss_variant >= 0:
+		# Bosses never use the shared cache — load fresh
+		var loaded: Resource = load(want_model)
 		if loaded is PackedScene:
-			_model_scene = loaded as PackedScene
-	if _model_scene != null:
-		var inst := _model_scene.instantiate()
+			model_scene = loaded as PackedScene
+			print("[enemy] boss model loaded: ", want_model.get_file())
+	else:
+		if _model_scene == null:
+			var loaded2: Resource = load(want_model)
+			if loaded2 is PackedScene:
+				_model_scene = loaded2 as PackedScene
+		model_scene = _model_scene
+	if model_scene != null:
+		var inst := model_scene.instantiate()
 		if inst is Node3D:
 			_body_root = inst as Node3D
 			var aabb: AABB = _compute_aabb(_body_root)
 			var target_height: float = 1.8
+			if boss_variant == 0:
+				target_height = 3.2
+			elif boss_variant == 1:
+				target_height = 3.6
 			var raw_height: float = max(aabb.size.y, 0.001)
 			var s: float = target_height / raw_height
 			s = clamp(s, 0.01, 100.0)
@@ -754,3 +774,18 @@ func _die_animation() -> void:
 	_anim.play(death_clip, 0.15)
 	_anim.speed_scale = 1.0
 	print("[death] playing: ", death_clip)
+
+
+func apply_boss_stats() -> void:
+	# Boss gets a big HP + damage boost on top of elite
+	_t_hp = int(float(_t_hp) * 2.0)
+	hp = _t_hp
+	_t_dmg = int(float(_t_dmg) * 1.5)
+	_t_cd *= 0.85
+	# Add a bright red glow so the boss stands out
+	var glow := OmniLight3D.new()
+	glow.light_color = Color(1.0, 0.20, 0.15)
+	glow.light_energy = 5.0
+	glow.omni_range = 9.0
+	glow.position = Vector3(0, 1.8, 0)
+	add_child(glow)

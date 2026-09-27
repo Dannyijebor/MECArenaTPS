@@ -385,8 +385,11 @@ func _start_wave(n: int) -> void:
 	var count: int = max(2, int(round(float(base_count) * float(_active_modifier.get("count", 1.0)))))
 	_spawn_wave_enemies(count)
 	_spawn_medkits(2 if n >= 3 else 1)
-	if n % 5 == 0:
-		_spawn_boss()
+	# Boss scaling — 1 at wave 2, +1 each wave after, capped at 8
+	var boss_count: int = clampi(n - 1, 0, 8)
+	if n >= 2:
+		for bi in range(boss_count):
+			_spawn_boss(bi, boss_count)
 	# _maybe_spawn_ghost(n)  # disabled — needs fix
 
 
@@ -1383,33 +1386,40 @@ func _build_hazards() -> void:
 	print("[hazard] 8 hazards placed")
 
 
-func _spawn_boss() -> void:
+func _spawn_boss(index: int = 0, total: int = 1) -> void:
 	var enemy_script = load("res://enemy.gd")
 	if enemy_script == null:
 		return
-	var spawn_pos := Vector3(0, 1.0, -32.0)
+	# Alternate boss model per index
+	var variant: int = index % 2
+	# Distribute boss spawn positions around the arena edge
+	var angle: float = (float(index) / max(1.0, float(total))) * TAU
+	var radius: float = 26.0
+	var spawn_pos := Vector3(cos(angle) * radius, 1.0, sin(angle) * radius)
 	_spawn_spawn_puff(spawn_pos)
 	SFX.play("enemy_shoot", -4.0, 0.55)
 	var e := CharacterBody3D.new()
 	e.set_script(enemy_script)
-	e.enemy_type = 2  # Tank base
-	e.set("is_elite", true)
+	e.enemy_type = 2
+	e.is_elite = true
+	e.set("boss_variant", variant)
 	e.position = spawn_pos
 	var col := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
-	shape.radius = 0.75
-	shape.height = 2.4
+	shape.radius = 1.0
+	shape.height = 3.2
 	col.shape = shape
-	col.position = Vector3(0, 1.2, 0)
+	col.position = Vector3(0, 1.6, 0)
 	e.add_child(col)
-	# Boss scale
-	e.scale = Vector3(1.35, 1.35, 1.35)
 	add_child(e)
+	await get_tree().process_frame
+	if is_instance_valid(e) and e.has_method("apply_boss_stats"):
+		e.call("apply_boss_stats")
 	e.connect("died", Callable(self, "_on_enemy_died"))
 	_enemies_alive += 1
-	# Banner
-	_show_boss_banner()
-	print("[boss] spawned")
+	print("[boss] spawned variant ", variant, " (", index + 1, "/", total, ") at ", spawn_pos)
+	if index == 0:
+		_show_boss_banner()
 
 
 func _show_boss_banner() -> void:
@@ -1418,7 +1428,7 @@ func _show_boss_banner() -> void:
 	layer.layer = 95
 	add_child(layer)
 	var label := Label.new()
-	label.text = "⚠  ELITE INBOUND  ⚠"
+	label.text = "⚠  BOSS INBOUND  ⚠"
 	label.add_theme_font_size_override("font_size", 48)
 	label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25))
 	label.add_theme_color_override("font_outline_color", Color(0.05, 0.0, 0.0))

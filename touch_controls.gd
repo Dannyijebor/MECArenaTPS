@@ -378,7 +378,6 @@ func _draw_hp_and_stats(vp: Vector2) -> void:
 	if hp_ratio < 0.35:
 		fill_col = Color(1.0, 0.20, 0.20)
 	draw_rect(Rect2(bar_pos + Vector2(2, 2), Vector2((bar_w - 4) * hp_ratio, bar_h - 4)), fill_col)
-	draw_arc(Rect2(bar_pos, Vector2(bar_w, bar_h)).get_center(), 0, 0, 0, 1, Color(0,0,0,0))
 	draw_string(font, Vector2(vp.x - 260, 52), "SCORE " + str(_score), HORIZONTAL_ALIGNMENT_RIGHT, 240, 26, Color(0.55, 0.95, 1.0))
 	draw_string(font, Vector2(vp.x - 260, 82), "KILLS " + str(_kills), HORIZONTAL_ALIGNMENT_RIGHT, 240, 20, Color.WHITE)
 	draw_string(font, Vector2(vp.x - 260, 108), "WAVE " + str(_wave) + "  - ENDLESS", HORIZONTAL_ALIGNMENT_RIGHT, 240, 20, Color(0.3, 0.9, 1.0))
