@@ -8,6 +8,21 @@ const ANIMS := {
 	"walk_back":   "res://models/avatars/animations/walk_back.fbx",
 	"crouch_walk": "res://models/avatars/animations/crouch_walk.fbx",
 	"rifle_idle":  "res://models/avatars/animations/rifle_idle.fbx",
+	"fire":        "res://models/avatars/animations/fire.fbx",
+	"aim":         "res://models/avatars/animations/aim.fbx",
+	"draw":        "res://models/avatars/animations/draw.fbx",
+	"holster":     "res://models/avatars/animations/holster.fbx",
+	"death":         "res://models/avatars/animations/death.fbx",
+	"reload":        "res://models/avatars/animations/reload.fbx",
+	"reload_quick":  "res://models/avatars/animations/reload_quick.fbx",
+	"crouch_idle":   "res://models/avatars/animations/crouch_idle.fbx",
+	"crouch_left":   "res://models/avatars/animations/crouch_left.fbx",
+	"crouch_right":  "res://models/avatars/animations/crouch_right.fbx",
+	"crouch_back":   "res://models/avatars/animations/crouchback.fbx",
+	"jump_forward":  "res://models/avatars/animations/jump_forward.fbx",
+	"pistol_jump":   "res://models/avatars/animations/pistol_jump.fbx",
+	"jump_back":     "res://models/avatars/animations/jump_back.fbx",
+	"jump_strafe":   "res://models/avatars/animations/jump_strafe.fbx",
 }
 
 static func attach(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> bool:

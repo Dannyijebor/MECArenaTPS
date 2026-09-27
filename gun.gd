@@ -84,3 +84,20 @@ static func _add_cyl(parent: Node3D, pos: Vector3, radius: float, height: float,
 	m.rotation.x = PI * 0.5
 	m.material_override = mat
 	parent.add_child(m)
+
+
+static func build_from_glb(parent: Node3D, model_path: String) -> Node3D:
+	var gun := Node3D.new()
+	gun.name = "Rifle"
+	var scn: PackedScene = load(model_path)
+	if scn == null:
+		print("[gun] failed to load: ", model_path)
+		return gun
+	var inst: Node3D = scn.instantiate()
+	gun.add_child(inst)
+	var muzzle := Node3D.new()
+	muzzle.name = "Muzzle"
+	muzzle.position = Vector3(0, 0.02, -0.55)
+	gun.add_child(muzzle)
+	parent.add_child(gun)
+	return gun

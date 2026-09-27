@@ -28,6 +28,9 @@ var _between_waves := false
 
 # UI reference
 var _ui: Node = null
+var _remote_players: Dictionary = {}
+var _enemies_disabled: bool = false
+var _net_peer: ENetMultiplayerPeer = null
 var _extraction_area: Area3D = null
 var _extraction_light: OmniLight3D = null
 var _extraction_ring: MeshInstance3D = null
@@ -43,20 +46,36 @@ var _ambient_player: AudioStreamPlayer = null
 var _distant_timer: float = 0.0
 
 func _ready() -> void:
-	# _build_floor()  # arena.gd builds the floor
+	var load_script: Script = load("res://loading_screen.gd")
+	var load_screen: CanvasLayer = null
+	if load_script != null:
+		load_screen = CanvasLayer.new()
+		load_screen.set_script(load_script)
+		add_child(load_screen)
 	_build_player()
-	# _build_lighting()  # arena.gd lights the room
 	_build_environment()
 	_build_arena()
+	_build_hazards()
 	_build_extraction_pad()
 	_build_dannys_shrine()
-	# _build_void_edges()  # disabled — solid ceiling now
 	_build_touch_controls()
 	_build_ambient()
-	# Wait a frame so UI is in the tree, then cache it
 	await get_tree().process_frame
 	_ui = get_node_or_null("TouchControlsLayer/TouchControls")
+	if load_screen != null and load_screen.has_signal("finished"):
+		await load_screen.finished
+		load_screen.queue_free()
+	var lobby_script: Script = load("res://lobby.gd")
+	if lobby_script != null:
+		var lobby: CanvasLayer = CanvasLayer.new()
+		lobby.set_script(lobby_script)
+		add_child(lobby)
+		if lobby.has_signal("play_pressed"):
+			await lobby.play_pressed
+		lobby.queue_free()
+	_wire_net_signals()
 	_start_wave(1)
+
 
 func _build_environment() -> void:
 	var env := WorldEnvironment.new()
@@ -250,6 +269,9 @@ func _spawn_wave_enemies(count: int) -> void:
 	]
 	var bias: int = int(_active_modifier.get("bias", 0))
 	var speed_mult: float = float(_active_modifier.get("speed", 1.0))
+	# Additional per-wave speed boost beyond wave 5
+	if _wave >= 6:
+		speed_mult *= 1.0 + float(_wave - 3) * 0.07
 	var types: Array = []
 	for i in range(count):
 		var t := 0
@@ -269,6 +291,14 @@ func _spawn_wave_enemies(count: int) -> void:
 		var jitter := Vector3(randf_range(-2.5, 2.5), 0.0, randf_range(-2.5, 2.5))
 		var pos: Vector3 = base + jitter
 		var e := _spawn_enemy_at(pos, enemy_script, types[i])
+		if e != null and _wave >= 3:
+			var hp_bonus: float = 1.0 + float(_wave - 2) * 0.25
+			var cur_hp_v: Variant = e.get("hp")
+			if cur_hp_v != null:
+				e.set("hp", int(float(cur_hp_v) * hp_bonus))
+			var cur_max_v: Variant = e.get("_t_hp")
+			if cur_max_v != null:
+				e.set("_t_hp", int(float(cur_max_v) * hp_bonus))
 		if e != null and speed_mult != 1.0:
 			var base_speed_v: Variant = e.get("_t_speed_mult")
 			if base_speed_v != null:
@@ -332,6 +362,9 @@ func _spawn_spawn_puff(pos: Vector3) -> void:
 	)
 
 func _start_wave(n: int) -> void:
+	if _enemies_disabled:
+		print("[game] waves disabled in this mode")
+		return
 	SFX.play("wave_start", -4.0)
 	_wave = n
 	if n > _best_wave:
@@ -345,9 +378,12 @@ func _start_wave(n: int) -> void:
 	# Announce
 	_show_wave_banner(n, _active_modifier)
 	# Compute enemy count
-	var base_count := 3 + (n - 1) * 2
+	var base_count := 3 + (n - 1) * 2 + int(pow(float(n) / 3.0, 1.6))
 	var count: int = max(2, int(round(float(base_count) * float(_active_modifier.get("count", 1.0)))))
 	_spawn_wave_enemies(count)
+	_spawn_medkits(2 if n >= 3 else 1)
+	if n % 5 == 0:
+		_spawn_boss()
 	# _maybe_spawn_ghost(n)  # disabled — needs fix
 
 
@@ -370,6 +406,7 @@ func _respawn_player() -> void:
 		player.call("respawn")
 
 func _process(delta: float) -> void:
+	_physics_process_net(delta)
 	_tick_extraction(delta)
 	if _distant_timer > 0.0:
 		_distant_timer -= delta
@@ -1267,3 +1304,239 @@ func _build_void_edges() -> void:
 		bulb.material_override = bmat
 		bulb.position = c
 		add_child(bulb)
+
+
+func _build_hazards() -> void:
+	var hazard_script: Script = load("res://hazards.gd")
+	if hazard_script == null:
+		print("[hazard] script missing")
+		return
+	# 8 hazards scattered across the arena, avoiding the shrine + extraction zones
+	var positions := [
+		Vector3(-8, 0, -8), Vector3(8, 0, -8),
+		Vector3(-8, 0, 8), Vector3(8, 0, 8),
+		Vector3(-18, 0, 0), Vector3(18, 0, 0),
+		Vector3(0, 0, -20), Vector3(0, 0, 20),
+	]
+	var kinds := [0, 1, 2, 0, 1, 2, 0, 1]
+	for i in range(positions.size()):
+		var h := Area3D.new()
+		h.set_script(hazard_script)
+		h.call("setup", kinds[i])
+		h.position = positions[i]
+		add_child(h)
+	print("[hazard] 8 hazards placed")
+
+
+func _spawn_boss() -> void:
+	var enemy_script = load("res://enemy.gd")
+	if enemy_script == null:
+		return
+	var spawn_pos := Vector3(0, 1.0, -32.0)
+	_spawn_spawn_puff(spawn_pos)
+	SFX.play("enemy_shoot", -4.0, 0.55)
+	var e := CharacterBody3D.new()
+	e.set_script(enemy_script)
+	e.enemy_type = 2  # Tank base
+	e.set("is_elite", true)
+	e.position = spawn_pos
+	var col := CollisionShape3D.new()
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.75
+	shape.height = 2.4
+	col.shape = shape
+	col.position = Vector3(0, 1.2, 0)
+	e.add_child(col)
+	# Boss scale
+	e.scale = Vector3(1.35, 1.35, 1.35)
+	add_child(e)
+	e.connect("died", Callable(self, "_on_enemy_died"))
+	_enemies_alive += 1
+	# Banner
+	_show_boss_banner()
+	print("[boss] spawned")
+
+
+func _show_boss_banner() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "BossBanner"
+	layer.layer = 95
+	add_child(layer)
+	var label := Label.new()
+	label.text = "⚠  ELITE INBOUND  ⚠"
+	label.add_theme_font_size_override("font_size", 48)
+	label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25))
+	label.add_theme_color_override("font_outline_color", Color(0.05, 0.0, 0.0))
+	label.add_theme_constant_override("outline_size", 16)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	label.offset_top = 200.0
+	label.offset_bottom = 280.0
+	layer.add_child(label)
+	label.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(label, "modulate:a", 1.0, 0.3)
+	tw.tween_interval(1.4)
+	tw.tween_property(label, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(layer.queue_free)
+
+
+func _on_net_peer_joined(peer_id: int) -> void:
+	print("[net] remote player joined: ", peer_id)
+	_spawn_remote_player(peer_id)
+
+
+func _on_net_peer_left(peer_id: int) -> void:
+	print("[net] remote player left: ", peer_id)
+	var rp = _remote_players.get(peer_id)
+	if rp != null and is_instance_valid(rp):
+		rp.queue_free()
+	_remote_players.erase(peer_id)
+
+
+func _spawn_remote_player(peer_id: int) -> void:
+	if _remote_players.has(peer_id):
+		return
+	# Simple colored capsule ghost — syncs position via RPC
+	var ghost := CharacterBody3D.new()
+	ghost.name = "RemotePlayer_" + str(peer_id)
+	ghost.position = Vector3(randf_range(-3, 3), 1.0, randf_range(-3, 3))
+	var mesh := MeshInstance3D.new()
+	var cap := CapsuleMesh.new()
+	cap.radius = 0.4
+	cap.height = 1.6
+	mesh.mesh = cap
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.35, 0.85, 1.0)
+	mat.emission_enabled = true
+	mat.emission = Color(0.25, 0.70, 1.0)
+	mat.emission_energy_multiplier = 0.8
+	mesh.material_override = mat
+	mesh.position = Vector3(0, 0.8, 0)
+	ghost.add_child(mesh)
+	# Nameplate
+	var label := Label3D.new()
+	label.text = "P" + str(peer_id)
+	label.position = Vector3(0, 2.1, 0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 48
+	label.pixel_size = 0.005
+	label.modulate = Color(0.7, 0.95, 1.0)
+	ghost.add_child(label)
+	# Collision so we don't walk through
+	var col := CollisionShape3D.new()
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.4
+	shape.height = 1.6
+	col.shape = shape
+	col.position = Vector3(0, 0.8, 0)
+	ghost.add_child(col)
+	add_child(ghost)
+	_remote_players[peer_id] = ghost
+
+
+func _physics_process_net(delta: float) -> void:
+	# Host broadcasts its own position; clients broadcast theirs.
+	if _remote_players.is_empty():
+		return
+	# Find local player
+	var local = get_tree().get_first_node_in_group("player")
+	if local == null:
+		return
+	var my_id := NetworkManager.my_peer_id
+	if my_id == 0:
+		return
+	# Send our position to everyone else
+	_rpc_net_update_position.rpc(my_id, local.global_position, local.rotation.y)
+
+
+@rpc("any_peer", "unreliable_ordered")
+func _rpc_net_update_position(peer_id: int, pos: Vector3, rot_y: float) -> void:
+	var rp = _remote_players.get(peer_id)
+	if rp == null or not is_instance_valid(rp):
+		# Late-arriving ghost — spawn it
+		_spawn_remote_player(peer_id)
+		rp = _remote_players.get(peer_id)
+	if rp != null and is_instance_valid(rp):
+		rp.global_position = rp.global_position.lerp(pos, 0.35)
+		rp.rotation.y = lerp_angle(rp.rotation.y, rot_y, 0.4)
+
+
+func _wire_net_signals() -> void:
+	if NetworkManager == null:
+		return
+	if not NetworkManager.player_joined.is_connected(_on_net_peer_joined):
+		NetworkManager.player_joined.connect(_on_net_peer_joined)
+	if not NetworkManager.player_left.is_connected(_on_net_peer_left):
+		NetworkManager.player_left.connect(_on_net_peer_left)
+	if not NetworkManager.connected_ok.is_connected(_on_client_connected_spawn_all):
+		NetworkManager.connected_ok.connect(_on_client_connected_spawn_all)
+
+
+func _on_client_connected_spawn_all() -> void:
+	# Client just connected — spawn ghosts for every player the server already knows about
+	print("[net] client connected, spawning existing peers")
+	for peer_id in NetworkManager.players.keys():
+		var pid: int = int(peer_id)
+		if pid != NetworkManager.my_peer_id:
+			_spawn_remote_player(pid)
+
+
+func _apply_game_mode() -> void:
+	var mode: String = "SOLO"
+	if NetworkManager != null:
+		mode = NetworkManager.game_mode
+	print("[game] starting mode: ", mode)
+	match mode:
+		"SOLO":
+			# Classic wave survival — no changes
+			_show_mode_banner("SOLO SURVIVAL", Color(0.35, 0.85, 1.0))
+		"1V1":
+			# Two players, no enemy waves, PvP only
+			_enemies_disabled = true
+			_show_mode_banner("1v1 DUEL", Color(0.95, 0.45, 0.35))
+		"SQUAD":
+			# 4v4 — two teams, enemies as neutral hazards
+			_show_mode_banner("SQUAD 4v4", Color(0.35, 0.95, 0.45))
+			# Future: assign teams of 4
+		"BR":
+			# Battle Royale — spawn each player at random distant location
+			_enemies_disabled = true
+			_show_mode_banner("BATTLE ROYALE", Color(1.0, 0.80, 0.30))
+			# Teleport player to a random corner
+			var corners := [
+				Vector3(-30, 1.5, -30), Vector3(30, 1.5, -30),
+				Vector3(-30, 1.5, 30), Vector3(30, 1.5, 30),
+			]
+			var pick: Vector3 = corners[randi() % corners.size()]
+			var local_player := get_tree().get_first_node_in_group("player")
+			if local_player != null:
+				local_player.global_position = pick
+		_:
+			_show_mode_banner("SOLO SURVIVAL", Color(0.35, 0.85, 1.0))
+
+
+func _show_mode_banner(mode_text: String, col: Color) -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 95
+	add_child(layer)
+	var label := Label.new()
+	label.text = mode_text
+	label.add_theme_font_size_override("font_size", 56)
+	label.add_theme_color_override("font_color", col)
+	label.add_theme_color_override("font_outline_color", Color(0.02, 0.05, 0.10))
+	label.add_theme_constant_override("outline_size", 14)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.anchor_left = 0.0
+	label.anchor_right = 1.0
+	label.anchor_top = 0.0
+	label.anchor_bottom = 0.0
+	label.offset_top = 160.0
+	label.offset_bottom = 240.0
+	layer.add_child(label)
+	label.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(label, "modulate:a", 1.0, 0.35)
+	tw.tween_interval(1.8)
+	tw.tween_property(label, "modulate:a", 0.0, 0.9)
+	tw.tween_callback(layer.queue_free)

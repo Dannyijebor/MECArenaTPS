@@ -3,7 +3,7 @@ const SFX := preload("res://sfx.gd")
 
 signal died
 
-const SPEED := 2.2
+const SPEED := 3.4
 const GRAVITY := 16.0
 const MAX_HP := 3
 const CONTACT_DAMAGE := 10
@@ -14,7 +14,7 @@ const SHOOT_MIN_DIST := 4.0
 const SHOOT_COOLDOWN := 1.6
 const SHOOT_DAMAGE := 6
 const SHOOT_ACCURACY_DEG := 6.0
-const STRAFE_SPEED := 1.6
+const STRAFE_SPEED := 2.4
 const STRAFE_CHANGE_MIN := 1.2
 const STRAFE_CHANGE_MAX := 2.6
 const COVER_SEARCH_RADIUS := 9.0
@@ -37,8 +37,11 @@ var hp: int = 3
 var _player: Node3D = null
 var _hit_flash := 0.0
 var _dying := false
+var is_elite: bool = false
+var _walk_phase: float = 0.0
+var _last_step_idx: int = 0
 var _contact_cd := 0.0
-var _shoot_cd := 0.0
+var _shoot_cd: float = 0.0
 enum AIState { APPROACH, COMBAT, COVER }
 var _ai_state: int = AIState.APPROACH
 var _strafe_dir: float = 1.0
@@ -62,7 +65,6 @@ var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
 var _anim: AnimationPlayer = null
 var _use_animations: bool = false
-var _walk_phase := 0.0
 var _recoil := 0.0
 
 static var _model_scene: PackedScene = null
@@ -71,6 +73,16 @@ static var _gun_mesh: Mesh = null
 static var _gun_mat: StandardMaterial3D = null
 
 func _ready() -> void:
+	# Randomize initial cooldown so enemies stagger slightly at spawn
+	_shoot_cd = randf_range(0.05, 0.5)
+	if is_elite:
+		# Orange glow to make elites visible at range
+		var glow := OmniLight3D.new()
+		glow.light_color = Color(1.0, 0.55, 0.15)
+		glow.light_energy = 3.5
+		glow.omni_range = 6.0
+		glow.position = Vector3(0, 1.2, 0)
+		add_child(glow)
 	_apply_type()
 	add_to_group("enemy")
 	_build_visual()
@@ -150,9 +162,11 @@ func _find_skeleton() -> void:
 		print("[enemy] rig attach: ", ok)
 		if ok:
 			_use_animations = true
-			_anim.play("mixamo/idle")
+			if _anim.has_animation("mixamo/rifle_idle"):
+				_anim.play("mixamo/rifle_idle")
+			else:
+				_anim.play("mixamo/idle")
 	_attach_gun_to_hand(_body_root)
-	_add_clothing(_t_color)
 	if _skeleton == null:
 		return
 	var wanted := ["thigh_l", "thigh_r", "calf_l", "calf_r", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_r", "hand_l", "spine_01", "spine_02", "neck", "head", "hips"]
@@ -229,10 +243,13 @@ func _set_bone_local(bone_short: String, pitch_deg: float, roll_deg: float = 0.0
 	_skeleton.set_bone_pose_rotation(idx, (rest * extra).get_rotation_quaternion())
 
 func _apply_pose(speed: float) -> void:
-	# Replaced by Mixamo animations
+	# Mixamo animations drive the skeleton now
 	if _use_animations and _anim != null:
 		_tick_animation_state()
+		return
+	# Fallback: procedural (shouldn't normally hit this)
 	return
+
 
 func _spawn_muzzle_flash() -> void:
 	var flash := OmniLight3D.new()
@@ -245,6 +262,8 @@ func _spawn_muzzle_flash() -> void:
 	t.timeout.connect(func(): if is_instance_valid(flash): flash.queue_free())
 
 func take_damage(amount: int, hit_pos: Vector3 = Vector3.ZERO) -> void:
+	SFX.play("hit", -2.0, randf_range(0.65, 0.80))
+
 	SFX.play("hit", -4.0, randf_range(0.95, 1.08))
 	_recent_damage_timer = DAMAGE_MEMORY_TIME
 	hp -= amount
@@ -288,6 +307,7 @@ func _die() -> void:
 	queue_free()
 
 func _physics_process(delta: float) -> void:
+	_tick_footstep(delta)
 	_tick_combat(delta)
 	if _hit_flash > 0.0:
 		_hit_flash -= delta
@@ -342,7 +362,12 @@ func _has_los_to_player() -> bool:
 	var to := _player.global_position + Vector3(0, 1.0, 0)
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(from, to)
-	q.exclude = [self.get_rid()]
+	# Exclude SELF and every other enemy — only walls/cover should block LOS
+	var exclude: Array = [self.get_rid()]
+	for other in get_tree().get_nodes_in_group("enemy"):
+		if other != self and other is CollisionObject3D:
+			exclude.append((other as CollisionObject3D).get_rid())
+	q.exclude = exclude
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
 		return false
@@ -350,7 +375,7 @@ func _has_los_to_player() -> bool:
 	return c == _player or (c is Node and c.is_in_group("player"))
 
 func _try_shoot_player() -> void:
-	SFX.play("enemy_shoot", -6.0, randf_range(0.9, 1.1))
+	SFX.play("shoot", -3.0, randf_range(0.88, 1.00))
 	if _player == null:
 		return
 	var from := global_position + Vector3(0, 1.4, 0)
@@ -362,7 +387,11 @@ func _try_shoot_player() -> void:
 	var ray_end := from + dir * SHOOT_RANGE * 1.5
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(from, ray_end)
-	q.exclude = [self.get_rid()]
+	var exclude2: Array = [self.get_rid()]
+	for other in get_tree().get_nodes_in_group("enemy"):
+		if other != self and other is CollisionObject3D:
+			exclude2.append((other as CollisionObject3D).get_rid())
+	q.exclude = exclude2
 	var hit := space.intersect_ray(q)
 	var impact: Vector3 = hit.position if not hit.is_empty() else ray_end
 	_spawn_muzzle_flash()
@@ -411,7 +440,9 @@ func _tick_combat(delta: float) -> void:
 		return
 	if not _has_los_to_player():
 		return
-	_shoot_cd = _t_cd
+	# Fire rate boost per wave — all enemies fire faster later
+	var wave_boost: float = 1.0 - min(0.35, float(get_tree().current_scene.get("_wave") if get_tree().current_scene else 1) * 0.03)
+	_shoot_cd = _t_cd * max(0.5, wave_boost)
 	_try_shoot_player()
 
 
@@ -427,6 +458,7 @@ func _tick_ai(delta: float) -> void:
 
 	if _flank_offset == 0.0:
 		_flank_offset = deg_to_rad(randf_range(-FLANK_ARC_DEG, FLANK_ARC_DEG))
+		# Aggressive stance
 
 	var to_player: Vector3 = _player.global_position - global_position
 	to_player.y = 0.0
@@ -521,6 +553,17 @@ func _die_ragdoll() -> void:
 	if _dying:
 		return
 	_dying = true
+	# DEBUG
+	if _anim == null:
+		print("[death] _anim is NULL")
+	else:
+		print("[death] anim list: ", _anim.get_animation_list())
+		print("[death] has mixamo/death: ", _anim.has_animation("mixamo/death"))
+		print("[death] has death: ", _anim.has_animation("death"))
+	var _had_death_anim: bool = _anim != null and _anim.has_animation("mixamo/death")
+	if _had_death_anim:
+		_anim.play("mixamo/death", 0.12)
+		print("[death] playing mixamo/death")
 	velocity = Vector3.ZERO
 	# turn off collision + AI
 	set_physics_process(false)
@@ -531,7 +574,7 @@ func _die_ragdoll() -> void:
 	SFX.play("hit", -6.0, 0.7)
 	# try get body root, ragdoll-rotate it
 	var br: Node3D = _body_root
-	if br != null:
+	if br != null and not _had_death_anim:
 		var fall_dir := 1.0 if randf() > 0.5 else -1.0
 		var tw := create_tween()
 		tw.set_parallel(true)
@@ -540,7 +583,7 @@ func _die_ragdoll() -> void:
 	# emit death for wave logic
 	emit_signal("died")
 	# fade + free
-	var t2 := get_tree().create_timer(1.2)
+	var t2 := get_tree().create_timer(3.0)
 	t2.timeout.connect(func() -> void:
 		if is_instance_valid(self):
 			queue_free()
@@ -548,91 +591,86 @@ func _die_ragdoll() -> void:
 
 
 
-func _add_clothing(color: Color) -> void:
-	_attach_box("spine_02", Vector3(0.38, 0.42, 0.24), Vector3(0, 0.12, 0), color)
-	_attach_box("hips", Vector3(0.36, 0.22, 0.26), Vector3(0, 0.0, 0), color.darkened(0.35))
-	_attach_box("thigh_l", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
-	_attach_box("thigh_r", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
-	_attach_box("upperarm_l", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
-	_attach_box("upperarm_r", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
-	_attach_box("calf_l", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
-	_attach_box("calf_r", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
-
-func _attach_box(bone: String, size: Vector3, offset: Vector3, color: Color) -> void:
-	if _skeleton == null:
-		return
-	var i := _skeleton.find_bone(bone)
-	if i < 0:
-		return
-	var att := BoneAttachment3D.new()
-	att.bone_idx = i
-	att.bone_name = bone
-	_skeleton.add_child(att)
-	var mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = size
-	mesh.mesh = box
-	mesh.position = offset
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.9
-	mat.metallic = 0.05
-	mesh.material_override = mat
-	att.add_child(mesh)
-
-
 func _apply_type() -> void:
+	# Elite roll — 15% chance, stronger variant
+	if not is_elite and randf() < 0.15:
+		is_elite = true
 	match enemy_type:
 		0:  # GRUNT — baseline
-			_t_speed_mult = 1.0
-			_t_hp = 3
-			_t_range = 18.0
-			_t_cd = 1.6
-			_t_dmg = 6
+			_t_speed_mult = 1.5
+			_t_hp = 30
+			_t_range = 20.0
+			_t_cd = 0.35
+			_t_dmg = 4
 			_t_color = Color(0.55, 0.16, 0.16)
 		1:  # RUSHER — fast, no gun, melee
-			_t_speed_mult = 1.85
-			_t_hp = 2
+			_t_speed_mult = 2.4
+			_t_hp = 20
 			_t_range = 0.0
 			_t_cd = 0.0
 			_t_dmg = 0
 			_t_color = Color(0.90, 0.42, 0.10)
 		2:  # TANK — slow, tough, hits hard
-			_t_speed_mult = 0.62
-			_t_hp = 10
-			_t_range = 14.0
-			_t_cd = 2.4
-			_t_dmg = 12
+			_t_speed_mult = 1.15
+			_t_hp = 100
+			_t_range = 16.0
+			_t_cd = 0.45
+			_t_dmg = 10
 			_t_color = Color(0.42, 0.14, 0.62)
 		3:  # SNIPER — long range, one hard shot
-			_t_speed_mult = 0.85
-			_t_hp = 2
-			_t_range = 32.0
-			_t_cd = 3.2
+			_t_speed_mult = 1.35
+			_t_hp = 25
+			_t_range = 36.0
+			_t_cd = 1.0
 			_t_dmg = 18
 			_t_color = Color(0.92, 0.72, 0.15)
-	hp = _t_hp
+	if is_elite:
+		_t_hp = int(float(_t_hp) * 3.5)
+		_t_speed_mult *= 1.45
+		_t_dmg = int(float(_t_dmg) * 1.55)
+		_t_cd *= 0.75
+		hp = _t_hp
+	else:
+		hp = _t_hp
 
 
 func _tick_animation_state() -> void:
 	if _anim == null:
 		return
 	if _dying:
+		if _anim.current_animation != "mixamo/hit_knockback" and _anim.has_animation("mixamo/hit_knockback"):
+			_anim.play("mixamo/hit_knockback", 0.1)
 		return
 	var speed: float = Vector2(velocity.x, velocity.z).length()
-	var target := "mixamo/idle"
+	var target := "mixamo/rifle_idle"
 	var speed_mult := 1.0
-	if speed > 0.4:
-		target = "mixamo/walk"
-		speed_mult = 0.85 + (speed / 4.0) * 0.5
+	# Firing animation (fires during shoot cooldown window)
+	var cd: float = max(_t_cd, 0.4)
+	if _shoot_cd > (cd - 0.15) and _has_los_to_player():
+		if _anim.has_animation("mixamo/fire"):
+			target = "mixamo/fire"
+			speed_mult = 1.3
+	# Movement states
+	if target == "mixamo/rifle_idle":
+		if speed > 3.5:
+			target = "mixamo/run"
+			speed_mult = 1.15
+		elif speed > 0.4:
+			target = "mixamo/walk"
+			speed_mult = 0.9 + (speed / 4.0) * 0.4
+	# Fallbacks
 	if not _anim.has_animation(target):
-		if _anim.has_animation("mixamo/idle"):
+		if _anim.has_animation("mixamo/rifle_idle"):
+			target = "mixamo/rifle_idle"
+		elif _anim.has_animation("mixamo/walk"):
+			target = "mixamo/walk"
+		elif _anim.has_animation("mixamo/idle"):
 			target = "mixamo/idle"
 		else:
 			return
 	_anim.speed_scale = speed_mult
 	if _anim.current_animation != target:
-		_anim.play(target, 0.25)
+		_anim.play(target, 0.20)
 
 
 func _attach_gun_to_hand(model: Node3D) -> void:
@@ -680,6 +718,36 @@ func _attach_gun_to_hand(model: Node3D) -> void:
 	if gun_script == null:
 		return
 	var gun: Node3D = gun_script.build(att)
-	gun.rotation_degrees = Vector3(0, 90, 90)
-	gun.position = Vector3(0.0, 0.04, 0.02)
-	gun.scale = Vector3(0.9, 0.9, 0.9)
+	gun.rotation_degrees = Vector3(-90, 0, 0)
+	gun.position = Vector3(0.0, 0.06, 0.0)
+	gun.scale = Vector3(0.85, 0.85, 0.85)
+
+
+func _tick_footstep(delta: float) -> void:
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	if speed < 0.3 or not is_on_floor():
+		return
+	# Step rate: ~2/sec at walk, ~4/sec at run
+	_walk_phase += (speed / 2.5) * 3.0 * delta
+	var idx: int = int(_walk_phase)
+	if idx != _last_step_idx:
+		_last_step_idx = idx
+		# Lower pitch = heavy enemy footsteps
+		SFX.play("footstep", -6.0, randf_range(0.72, 0.85))
+
+
+func _die_animation() -> void:
+	# Play best available death clip — death.fbx preferred
+	if _anim == null:
+		return
+	var death_clip := ""
+	for candidate in ["mixamo/death", "mixamo/hit_knockback", "mixamo/holster", "mixamo/aim"]:
+		if _anim.has_animation(candidate):
+			death_clip = candidate
+			break
+	if death_clip == "":
+		print("[death] no valid death clip found")
+		return
+	_anim.play(death_clip, 0.15)
+	_anim.speed_scale = 1.0
+	print("[death] playing: ", death_clip)

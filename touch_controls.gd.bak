@@ -1,0 +1,260 @@
+extends Control
+
+
+# ============================================================
+# UI THEME — modern mobile shooter style
+# ============================================================
+const UI_DARK := Color(0.05, 0.07, 0.11, 0.88)
+const UI_BORDER := Color(0.60, 0.88, 1.0, 0.55)
+const UI_TEXT := Color(0.94, 0.97, 1.0)
+const UI_TEXT_DIM := Color(0.65, 0.75, 0.88)
+const UI_ACCENT := Color(0.35, 0.88, 1.0)
+const UI_DANGER := Color(1.0, 0.35, 0.35)
+
+const BTN_FIRE := Color(0.92, 0.28, 0.28)
+const BTN_JUMP := Color(0.28, 0.78, 0.42)
+const BTN_RELOAD := Color(0.90, 0.64, 0.20)
+const BTN_SWAP := Color(0.32, 0.55, 0.90)
+const BTN_AIM := Color(0.82, 0.85, 0.92)
+const BTN_CROUCH := Color(0.62, 0.35, 0.88)
+const BTN_MIC := Color(0.28, 0.78, 0.55)
+
+
+func _ui_button(center: Vector2, radius: float, base: Color, icon: String, pressed: bool) -> void:
+	var r := radius * (0.94 if pressed else 1.0)
+	draw_circle(center + Vector2(0, 5), r + 2, Color(0, 0, 0, 0.42))
+	draw_circle(center, r, UI_DARK)
+	var fill_col: Color = base
+	fill_col.a = 0.95 if pressed else 0.62
+	draw_circle(center, r - 3, fill_col)
+	var hi: Color = Color(1, 1, 1, 0.22 if pressed else 0.10)
+	draw_circle(center + Vector2(0, -r * 0.24), r * 0.50, hi)
+	var border: Color = Color(1, 1, 1, 0.95) if pressed else UI_BORDER
+	draw_arc(center, r - 1, 0, TAU, 64, border, 3.0, true)
+	var icon_col: Color = Color(1, 1, 1, 0.98 if pressed else 0.90)
+	_ui_icon(center, r * 0.42, icon, icon_col)
+
+
+func _ui_icon(center: Vector2, size: float, icon: String, col: Color) -> void:
+	var s := size
+	match icon:
+		"fire":
+			draw_line(center + Vector2(-s * 0.70, s * 0.30), center + Vector2(0, -s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2( s * 0.70, s * 0.30), center + Vector2(0, -s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2(-s * 0.60, s * 0.65), center + Vector2(s * 0.60, s * 0.65), col, 4.0, true)
+		"jump":
+			draw_line(center + Vector2(0, s * 0.55), center + Vector2(0, -s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2(-s * 0.55, s * 0.05), center + Vector2(0, -s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2( s * 0.55, s * 0.05), center + Vector2(0, -s * 0.50), col, 4.0, true)
+		"reload":
+			draw_arc(center, s * 0.62, -PI * 0.35, PI * 1.30, 40, col, 3.6, true)
+			var tip_x: float = center.x + cos(PI * 1.30) * s * 0.62
+			var tip_y: float = center.y + sin(PI * 1.30) * s * 0.62
+			draw_line(Vector2(tip_x, tip_y), Vector2(tip_x - s * 0.22, tip_y + s * 0.02), col, 3.6, true)
+			draw_line(Vector2(tip_x, tip_y), Vector2(tip_x - s * 0.02, tip_y - s * 0.24), col, 3.6, true)
+		"swap":
+			draw_line(center + Vector2(-s * 0.35, -s * 0.45), center + Vector2(-s * 0.35, s * 0.50), col, 3.5, true)
+			draw_line(center + Vector2(-s * 0.62, -s * 0.15), center + Vector2(-s * 0.35, -s * 0.45), col, 3.5, true)
+			draw_line(center + Vector2(-s * 0.08, -s * 0.15), center + Vector2(-s * 0.35, -s * 0.45), col, 3.5, true)
+			draw_line(center + Vector2( s * 0.35, s * 0.45), center + Vector2( s * 0.35, -s * 0.50), col, 3.5, true)
+			draw_line(center + Vector2( s * 0.08, s * 0.15), center + Vector2( s * 0.35, s * 0.45), col, 3.5, true)
+			draw_line(center + Vector2( s * 0.62, s * 0.15), center + Vector2( s * 0.35, s * 0.45), col, 3.5, true)
+		"aim":
+			draw_line(center + Vector2(-s * 0.80, 0), center + Vector2(-s * 0.28, 0), col, 3.0, true)
+			draw_line(center + Vector2( s * 0.28, 0), center + Vector2( s * 0.80, 0), col, 3.0, true)
+			draw_line(center + Vector2(0, -s * 0.80), center + Vector2(0, -s * 0.28), col, 3.0, true)
+			draw_line(center + Vector2(0,  s * 0.28), center + Vector2(0,  s * 0.80), col, 3.0, true)
+			draw_circle(center, 3.0, col)
+		"crouch":
+			draw_line(center + Vector2(0, -s * 0.55), center + Vector2(0, s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2(-s * 0.55, s * 0.05), center + Vector2(0, s * 0.50), col, 4.0, true)
+			draw_line(center + Vector2( s * 0.55, s * 0.05), center + Vector2(0, s * 0.50), col, 4.0, true)
+		"mic":
+			var w := s * 0.34
+			var h := s * 0.50
+			draw_circle(center + Vector2(0, -h * 0.55), w, col)
+			draw_rect(Rect2(center + Vector2(-w, -h * 0.55), Vector2(w * 2, h * 1.10)), col)
+			draw_circle(center + Vector2(0, h * 0.55), w, col)
+			draw_line(center + Vector2(0, h * 0.85), center + Vector2(0, h * 1.25), col, 3.0, true)
+			draw_line(center + Vector2(-w * 0.9, h * 1.25), center + Vector2(w * 0.9, h * 1.25), col, 3.0, true)
+
+
+func _fire_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS * 3 - 90, vp.y - BUTTON_RADIUS - 60)
+
+
+func _jump_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS - 60, vp.y - BUTTON_RADIUS - 60)
+
+
+func _reload_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS - 60, vp.y - BUTTON_RADIUS * 3 - 90)
+
+
+func _switch_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS * 3 - 90, vp.y - BUTTON_RADIUS * 3 - 90)
+
+
+func _crouch_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(JOYSTICK_RADIUS * 2.0 + 120.0, vp.y - JOYSTICK_RADIUS - 60.0)
+
+
+func _ads_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x - BUTTON_RADIUS * 5.0 - 130.0, vp.y - BUTTON_RADIUS - 60.0)
+
+
+func _joystick_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(JOYSTICK_RADIUS + 60, vp.y - JOYSTICK_RADIUS - 60)
+
+
+func _draw_modern_buttons(vp: Vector2) -> void:
+	var fp := _fire_center()
+	_ui_button(fp, BUTTON_RADIUS + 4, BTN_FIRE, "fire", _fire_touch_id != -1)
+	var jp := _jump_center()
+	_ui_button(jp, BUTTON_RADIUS + 4, BTN_JUMP, "jump", _jump_touch_id != -1)
+	var rp := _reload_center()
+	_ui_button(rp, BUTTON_RADIUS + 4, BTN_RELOAD, "reload", _reload_touch_id != -1)
+	var sp := _switch_center()
+	_ui_button(sp, BUTTON_RADIUS + 4, BTN_SWAP, "swap", _switch_touch_id != -1)
+
+
+
+
+
+func _draw_crouch_button(vp: Vector2) -> void:
+	var cp := _crouch_center()
+	var pressed: bool = _crouch_touch_id != -1
+	_ui_button(cp, 52.0, BTN_CROUCH, "crouch", pressed)
+
+
+func _draw_hitmarker_and_numbers() -> void:
+	var font := ThemeDB.fallback_font
+	if _player == null or not is_instance_valid(_player):
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var center := vp * 0.5
+
+	# Hitmarker
+	var hmt: Variant = _player.get("hit_marker_time")
+	if hmt != null and float(hmt) > 0.0:
+		var hs_v: Variant = _player.get("hit_marker_headshot")
+		var hs: bool = hs_v != null and bool(hs_v)
+		var col: Color = Color(1.0, 0.85, 0.2, 0.95) if hs else Color(1, 1, 1, 0.9)
+		var r1 := 8.0
+		var r2 := 20.0
+		var thick := 2.5
+		# four ticks forming an X
+		draw_line(center + Vector2(-r2, -r2), center + Vector2(-r1, -r1), col, thick)
+		draw_line(center + Vector2(r2, -r2),  center + Vector2(r1, -r1),  col, thick)
+		draw_line(center + Vector2(-r2, r2),  center + Vector2(-r1, r1),  col, thick)
+		draw_line(center + Vector2(r2, r2),   center + Vector2(r1, r1),   col, thick)
+
+	# Damage numbers
+	var dn_list: Variant = _player.get("damage_numbers")
+	if dn_list == null:
+		return
+	var cam: Camera3D = _player.get("camera") if _player.get("camera") != null else null
+	if cam == null:
+		return
+	for dn in dn_list:
+		if not (dn is Dictionary):
+			continue
+		var life: float = float(dn.get("life", 0.0))
+		var max_life: float = float(dn.get("max_life", 0.85))
+		var t: float = 1.0 - (life / max_life)
+		var world_pos: Vector3 = dn.get("pos", Vector3.ZERO) + Vector3(0, t * 0.9, 0)
+		var screen: Vector2 = cam.unproject_position(world_pos)
+		if screen.x < -100 or screen.x > vp.x + 100:
+			continue
+		var alpha: float = clamp(1.0 - t * 1.1, 0.0, 1.0)
+		var hs: bool = dn.get("headshot", false)
+		var val: int = int(dn.get("value", 0))
+		var col: Color = Color(1.0, 0.85, 0.2, alpha) if hs else Color(1, 1, 1, alpha)
+		var size: int = 22 if hs else 18
+		var txt: String = str(val)
+		if hs:
+			txt = "HS " + str(val)
+		draw_string(font, screen + Vector2(-14, 0), txt, HORIZONTAL_ALIGNMENT_LEFT, 100, size, col)
+
+
+func _draw_ads_button(vp: Vector2) -> void:
+	var ap := _ads_center()
+	var aiming: bool = false
+	if _player != null and is_instance_valid(_player):
+		var a: Variant = _player.get("_aiming")
+		if a != null:
+			aiming = bool(a)
+	var pressed: bool = _ads_touch_id != -1 or aiming
+	_ui_button(ap, BUTTON_RADIUS + 4, BTN_AIM, "aim", pressed)
+
+
+func _draw_extraction_hud() -> void:
+	var font := ThemeDB.fallback_font
+	var vp := get_viewport().get_visible_rect().size
+	# Bottom-center prompt
+	var y := vp.y - 200.0
+	if extraction_armed and extraction_progress <= 0.0:
+		var msg := "EXTRACTION ARMED — RETURN TO GREEN PAD"
+		draw_string(font, Vector2(0, y), msg, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(0.30, 1.0, 0.55, 0.85))
+	if extraction_progress > 0.0:
+		var bar_w := 380.0
+		var bar_h := 18.0
+		var bx := (vp.x - bar_w) * 0.5
+		var by := y - 20.0
+		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0, 0, 0, 0.65))
+		draw_rect(Rect2(bx + 2, by + 2, (bar_w - 4) * extraction_progress, bar_h - 4), Color(0.30, 1.0, 0.55, 0.95))
+		draw_string(font, Vector2(0, y + 20), "EXTRACTING...", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, Color(0.30, 1.0, 0.55))
+
+
+func _draw_carry_bar(vp: Vector2) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ratio_v: Variant = _player.get("_carry_weight")
+	if ratio_v == null:
+		return
+	var weight: float = float(ratio_v)
+	if weight <= 0.0:
+		return
+	var max_v: Variant = _player.get("_max_carry")
+	var max_w: float = float(max_v) if max_v != null else 2400.0
+	var ratio: float = clampf(weight / max_w, 0.0, 1.0)
+	var font := ThemeDB.fallback_font
+	# Position: right side under HUD, small bar
+	var bar_w := 200.0
+	var bar_h := 12.0
+	var bx := vp.x - bar_w - 30.0
+	var by := 190.0
+	draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0, 0, 0, 0.65))
+	var col := Color(0.30, 0.95, 1.0)
+	if ratio > 0.6:
+		col = Color(1.0, 0.75, 0.20)
+	if ratio > 0.85:
+		col = Color(1.0, 0.35, 0.20)
+	draw_rect(Rect2(bx + 2, by + 2, (bar_w - 4) * ratio, bar_h - 4), col)
+	var label := "CARRY " + str(int(weight))
+	if ratio > 0.85:
+		label += "  HEAVY"
+	elif ratio > 0.6:
+		label += "  LOADED"
+	draw_string(font, Vector2(bx, by - 6), label, HORIZONTAL_ALIGNMENT_RIGHT, bar_w, 14, col)
+
+
+func _mic_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	# Top-center of screen — always clear of other buttons
+	return Vector2(vp.x * 0.5, 110.0)
+
+
+func _draw_mic_button(vp: Vector2) -> void:
+	var mp := _mic_center()
+	var pressed: bool = _mic_touch_id != -1
+	_ui_button(mp, BUTTON_RADIUS * 0.9, BTN_MIC, "mic", pressed)
+	var font := ThemeDB.fallback_font
+	draw_string(font, mp + Vector2(-54, -BUTTON_RADIUS * 0.9 - 12), "HOLD TO TALK", HORIZONTAL_ALIGNMENT_LEFT, 200, 13, UI_TEXT_DIM)

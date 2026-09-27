@@ -25,7 +25,7 @@ const CROUCH_MULT := 0.5
 const SLIDE_MULT := 2.1
 const SLIDE_TIME := 0.65
 const SLIDE_COOLDOWN := 1.0
-const FOV_BASE := 55.0
+const FOV_BASE := 50.0
 const FOV_SPRINT := 88.0
 const FOV_SLIDE := 96.0
 const ADS_FOV := 55.0
@@ -64,6 +64,13 @@ var _shake_amt := 0.0
 var _skeleton: Skeleton3D = null
 var _bones: Dictionary = {}
 var _anim: AnimationPlayer = null
+var _gun_node: Node3D = null
+var _weapon_drawn: bool = false
+var _draw_timer: float = 0.0
+var _holster_timer: float = 0.0
+var _holster_wait: float = 0.0
+const HOLSTER_DELAY := 3.0
+var _gun_muzzle: Node3D = null
 var _use_animations: bool = false
 var _carry_weight: float = 0.0
 var _max_carry: float = 2400.0
@@ -74,12 +81,14 @@ var _model_root: Node3D = null
 var hit_marker_time := 0.0
 var hit_marker_headshot := false
 var damage_numbers: Array = []
-var _cam_base_pos := Vector3(0, 0.70, 1.55)
+var _cam_base_pos := Vector3(0, 0.78, 1.10)
 var current_weapon_id: String = WeaponDB.RIFLE
 var ammo: int = 0
 var _reload_timer: float = 0.0
 var _reloading: bool = false
 var _recoil_pitch: float = 0.0
+var _dying: bool = false
+var _death_timer: float = 0.0
 var _switch_cd: float = 0.0
 
 var touch_move := Vector2.ZERO
@@ -97,6 +106,7 @@ func _ready() -> void:
 	rotation.y = _yaw
 
 func _physics_process(delta: float) -> void:
+	_tick_weapon_state(delta)
 	if _reload_timer > 0.0:
 		_reload_timer -= delta
 		if _reload_timer <= 0.0:
@@ -188,17 +198,54 @@ func _restore_body_color() -> void:
 	body.material_override = mat
 
 func die() -> void:
+	if _dying:
+		return
+	_dying = true
+	_death_timer = 0.0
+	# Stop all input, animations on the death clip
+	touch_move = Vector2.ZERO
+	touch_look = Vector2.ZERO
+	touch_fire = false
+	touch_jump = false
+	touch_crouch = false
+	touch_aim = false
+	velocity = Vector3.ZERO
+	# Play the death animation
+	if _anim != null and _anim.has_animation("mixamo/death"):
+		_anim.play("mixamo/death", 0.15)
+		_anim.speed_scale = 0.85
+		print("[player] death animation playing")
+	# Slow motion effect — time scale down briefly
+	Engine.time_scale = 0.55
+	SFX.play("hurt", -1.0, 0.7)
+	# Cinematic camera pitch — look down at the corpse
 	emit_signal("died")
+
+
+func is_dying() -> bool:
+	return _dying
 
 func respawn() -> void:
 	hp = MAX_HP
 	_iframes = 1.2
 	global_position = Vector3(0, 1.0, 0)
 	velocity = Vector3.ZERO
+	# Clear death state
+	_dying = false
+	_death_timer = 0.0
+	Engine.time_scale = 1.0
+	# Reset camera to normal
+	camera.position = _cam_base_pos
+	# Return to rifle ready idle
+	if _anim != null and _anim.has_animation("mixamo/rifle_idle"):
+		_anim.play("mixamo/rifle_idle", 0.2)
+		_anim.speed_scale = 1.0
 	emit_signal("hp_changed", hp)
 	_restore_body_color()
 
 func fire() -> void:
+	if _dying:
+		return
 	if _reloading or _switch_cd > 0.0:
 		return
 	var wd: Dictionary = WeaponDB.get_data(current_weapon_id)
@@ -210,15 +257,26 @@ func fire() -> void:
 	_fire_timer = float(wd.get("cooldown", 0.14))
 	SFX.play("shoot", 0.0, randf_range(0.96, 1.04))
 
-	var origin: Vector3 = camera.global_position
+	# Aim direction still from camera (that's the crosshair)
+	var cam_origin: Vector3 = camera.global_position
 	var forward: Vector3 = -camera.global_transform.basis.z.normalized()
 	var aim_angle: float = float(wd.get("auto_aim_angle", 12.0))
 	if _aiming:
 		aim_angle *= ADS_AA_MULT
-	var target: Node3D = _find_auto_aim_target(origin, forward, aim_angle)
+	var target: Node3D = _find_auto_aim_target(cam_origin, forward, aim_angle)
 	var base_dir: Vector3 = forward
 	if target != null:
-		base_dir = (target.global_position + Vector3(0, 0.8, 0) - origin).normalized()
+		base_dir = (target.global_position + Vector3(0, 0.8, 0) - cam_origin).normalized()
+
+	# Spawn position — from the gun muzzle when available, else fall back to camera
+	var muzzle_pos: Vector3 = cam_origin + forward * 0.4
+	if _gun_muzzle != null and is_instance_valid(_gun_muzzle):
+		muzzle_pos = _gun_muzzle.global_position
+	# Recompute direction so bullet goes from muzzle to the aim point
+	var aim_point: Vector3 = cam_origin + forward * 60.0
+	if target != null:
+		aim_point = target.global_position + Vector3(0, 0.8, 0)
+	var spawn_dir: Vector3 = (aim_point - muzzle_pos).normalized()
 
 	var scene: Node = get_tree().current_scene
 	if scene == null:
@@ -232,36 +290,74 @@ func fire() -> void:
 	var bullet_script: Script = load("res://bullet.gd")
 
 	for i in range(pellets):
-		var dir: Vector3 = base_dir
+		var dir: Vector3 = spawn_dir
 		if spread_rad > 0.0:
 			dir = dir.rotated(Vector3.UP, randf_range(-spread_rad, spread_rad))
 			dir = dir.rotated(Vector3.RIGHT, randf_range(-spread_rad, spread_rad))
 		var bullet := Area3D.new()
 		bullet.set_script(bullet_script)
 		scene.add_child(bullet)
-		bullet.global_position = origin + dir * 0.6
+		bullet.global_position = muzzle_pos
 		if bullet.has_method("setup"):
 			bullet.call("setup", dir, damage)
 
-	var flash := OmniLight3D.new()
-	flash.light_color = Color(1.0, 0.85, 0.5)
-	flash.light_energy = 4.0
-	flash.omni_range = 4.0
-	scene.add_child(flash)
-	flash.global_position = origin + base_dir * 0.5
-	var t := get_tree().create_timer(0.06)
-	t.timeout.connect(func() -> void:
-		if is_instance_valid(flash):
-			flash.queue_free()
-	)
+	# Muzzle flash at the actual gun muzzle
+	_spawn_muzzle_flash(muzzle_pos, spawn_dir, cam_origin)
 
-	var rp: float = float(wd.get("recoil_pitch", 1.0))
-	if _aiming:
-		rp *= ADS_RECOIL_MULT
-	_recoil_pitch += deg_to_rad(rp)
-
+	_recoil_pitch += deg_to_rad(float(wd.get("recoil_pitch", 1.0)))
 	if ammo <= 0:
 		_start_reload()
+
+
+func _spawn_muzzle_flash(pos: Vector3, dir: Vector3, cam_pos: Vector3) -> void:
+	# Only show flash if the muzzle is visible from the camera's view
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.85, 0.5)
+	light.light_energy = 5.0
+	light.omni_range = 5.0
+	tree_set_scene_light(light, pos)
+	# Sprite flash — small star burst
+	var sprite := Sprite3D.new()
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	# Radial star
+	for r in range(16, 0, -1):
+		var a: float = clampf(1.0 - (float(r) / 16.0), 0.0, 1.0)
+		var c := Color(1.0, 0.85, 0.5, a * 0.9)
+		for angle_i in range(8):
+			var ang: float = float(angle_i) * TAU / 8.0
+			var x: int = int(16 + cos(ang) * r)
+			var y: int = int(16 + sin(ang) * r)
+			if x >= 0 and x < 32 and y >= 0 and y < 32:
+				img.set_pixel(x, y, c)
+	var tex := ImageTexture.create_from_image(img)
+	sprite.texture = tex
+	sprite.pixel_size = 0.006
+	sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sprite.shaded = false
+	sprite.transparent = true
+	sprite.position = pos
+	sprite.modulate = Color(1.0, 0.9, 0.6, 1.0)
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	scene.add_child(sprite)
+	# Freeze flash to fade quickly
+	var t := get_tree().create_timer(0.06)
+	t.timeout.connect(func() -> void:
+		if is_instance_valid(sprite):
+			sprite.queue_free()
+		if is_instance_valid(light):
+			light.queue_free()
+	)
+
+
+func tree_set_scene_light(l: OmniLight3D, pos: Vector3) -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	scene.add_child(l)
+	l.global_position = pos
 
 func _start_reload() -> void:
 	if _reloading:
@@ -399,14 +495,24 @@ func _tick_movement_feel(delta: float) -> void:
 		bob_y = sin(_walk_phase * 2.0) * 0.022
 	elif horiz_speed < 0.3:
 		bob_y = sin(Time.get_ticks_msec() * 0.001 * 1.9) * 0.006
+	var cam_target := _cam_base_pos + Vector3(0, bob_y, 0)
 	if _shake_amt > 0.001:
-		var ox := randf_range(-1.0, 1.0) * _shake_amt
-		var oy := randf_range(-1.0, 1.0) * _shake_amt
-		var oz := randf_range(-1.0, 1.0) * _shake_amt
-		camera.position = _cam_base_pos + Vector3(ox, oy + bob_y, oz)
+		cam_target += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake_amt
 		_shake_amt = move_toward(_shake_amt, 0.0, delta * 2.5)
-	else:
-		camera.position = _cam_base_pos + Vector3(0, bob_y, 0)
+	# Wall clip — pull camera in when a wall is between pivot and camera
+	if camera != null and cam_pivot != null:
+		var pivot_world: Vector3 = cam_pivot.global_position
+		var want_world: Vector3 = cam_pivot.to_global(cam_target)
+		var space := get_world_3d().direct_space_state
+		var q := PhysicsRayQueryParameters3D.create(pivot_world, want_world)
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			var hit_dist: float = pivot_world.distance_to(hit.position)
+			var want_dist: float = pivot_world.distance_to(want_world)
+			var ratio: float = clampf((hit_dist - 0.35) / max(want_dist, 0.01), 0.12, 1.0)
+			cam_target.z = _cam_base_pos.z * ratio
+	camera.position = camera.position.lerp(cam_target, delta * 15.0)
 
 
 func _get_move_speed() -> float:
@@ -543,45 +649,7 @@ func _tick_player_walk(delta: float) -> void:
 		var step_idx: int = int(_walk_phase)
 		if step_idx != _last_step_idx:
 			_last_step_idx = step_idx
-			SFX.play("footstep", -3.0, randf_range(0.92, 1.08))
-
-func _add_clothing(color: Color) -> void:
-	# Shirt
-	_attach_box("spine_02", Vector3(0.38, 0.42, 0.24), Vector3(0, 0.12, 0), color)
-	# Belt / pants top
-	_attach_box("hips", Vector3(0.36, 0.22, 0.26), Vector3(0, 0.0, 0), color.darkened(0.35))
-	# Thighs
-	_attach_box("thigh_l", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
-	_attach_box("thigh_r", Vector3(0.16, 0.35, 0.16), Vector3(0, -0.15, 0), color.darkened(0.35))
-	# Sleeves
-	_attach_box("upperarm_l", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
-	_attach_box("upperarm_r", Vector3(0.14, 0.20, 0.14), Vector3(0, -0.10, 0), color)
-	# Boots
-	_attach_box("calf_l", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
-	_attach_box("calf_r", Vector3(0.13, 0.22, 0.13), Vector3(0, -0.20, 0), Color(0.08, 0.08, 0.10))
-
-func _attach_box(bone: String, size: Vector3, offset: Vector3, color: Color) -> void:
-	if _skeleton == null:
-		return
-	var i := _skeleton.find_bone(bone)
-	if i < 0:
-		return
-	var att := BoneAttachment3D.new()
-	att.bone_idx = i
-	att.bone_name = bone
-	_skeleton.add_child(att)
-	var mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = size
-	mesh.mesh = box
-	mesh.position = offset
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.9
-	mat.metallic = 0.05
-	mesh.material_override = mat
-	att.add_child(mesh)
-
+			SFX.play("footstep", -1.0, randf_range(0.92, 1.08))
 
 func set_carry_weight(amount: float) -> void:
 	_carry_weight = max(0.0, amount)
@@ -601,38 +669,123 @@ func get_carry_weight() -> float:
 func _tick_animation_state() -> void:
 	if _anim == null:
 		return
+	if _dying:
+		return
 	var speed: float = Vector2(velocity.x, velocity.z).length()
 	var target := "mixamo/idle"
 	var speed_mult := 1.0
-	if _aiming and speed < 0.5:
-		target = "mixamo/rifle_idle"
-	elif _crouching or _sliding:
+	var airborne: bool = not is_on_floor()
+	# 1. Holster animation playing
+	if _holster_timer > 0.0 and _anim.has_animation("mixamo/holster"):
+		target = "mixamo/holster"
+		_anim.speed_scale = 1.0
+		if _anim.current_animation != target:
+			_anim.play(target, 0.12)
+		return
+	# 2. Holstered — unarmed
+	if not _weapon_drawn:
 		if speed > 0.4:
-			target = "mixamo/crouch_walk"
-			speed_mult = 0.9 + (speed / 4.0) * 0.4
-		else:
-			target = "mixamo/idle"
-	elif speed > 0.4:
-		var fwd: Vector3 = -global_transform.basis.z
-		var to_vel: Vector3 = Vector3(velocity.x, 0, velocity.z)
-		var forward_dot: float = fwd.dot(to_vel)
-		if forward_dot < 0.0:
-			target = "mixamo/walk_back"
-			speed_mult = 0.9 + (speed / 5.5) * 0.3
-		elif speed > 4.5:
-			target = "mixamo/run"
-			speed_mult = 1.0 + (speed / 8.0) * 0.25
-		else:
 			target = "mixamo/walk"
 			speed_mult = 0.85 + (speed / 5.5) * 0.45
+		else:
+			target = "mixamo/idle"
+		_anim.speed_scale = speed_mult
+		if _anim.current_animation != target and _anim.has_animation(target):
+			_anim.play(target, 0.22)
+		return
+	# 3. Draw animation playing
+	if _draw_timer > 0.0 and _anim.has_animation("mixamo/draw"):
+		target = "mixamo/draw"
+		_anim.speed_scale = 1.2
+		if _anim.current_animation != target:
+			_anim.play(target, 0.10)
+		return
+	# 4. AIRBORNE — directional jump animations
+	if airborne:
+		var fwd_j: Vector3 = -global_transform.basis.z
+		var right_j: Vector3 = global_transform.basis.x
+		var v_j: Vector3 = Vector3(velocity.x, 0, velocity.z)
+		var spd_j: float = v_j.length()
+		if spd_j < 0.5:
+			target = "mixamo/pistol_jump"
+		else:
+			var vn: Vector3 = v_j.normalized()
+			var f_dot: float = fwd_j.dot(vn)
+			var r_dot: float = right_j.dot(vn)
+			if f_dot > 0.5:
+				target = "mixamo/jump_forward"
+			elif f_dot < -0.5:
+				target = "mixamo/jump_back"
+			elif abs(r_dot) > 0.5:
+				target = "mixamo/jump_strafe"
+			else:
+				target = "mixamo/jump_forward"
+		_anim.speed_scale = 1.0
+		if _anim.current_animation != target and _anim.has_animation(target):
+			_anim.play(target, 0.10)
+		return
+	# 5. RELOADING — full reload cycle
+	if _reloading and _anim.has_animation("mixamo/reload"):
+		target = "mixamo/reload"
+		_anim.speed_scale = 1.0
+		if _anim.current_animation != target:
+			_anim.play(target, 0.15)
+		return
+	# 6. CROUCHING — directional crouch animations
+	if _crouching or _sliding:
+		if speed < 0.4:
+			target = "mixamo/crouch_idle"
+		else:
+			var fwd_c: Vector3 = -global_transform.basis.z
+			var right_c: Vector3 = global_transform.basis.x
+			var v_c: Vector3 = Vector3(velocity.x, 0, velocity.z).normalized()
+			var f_dot_c: float = fwd_c.dot(v_c)
+			var r_dot_c: float = right_c.dot(v_c)
+			if f_dot_c > 0.5:
+				target = "mixamo/crouch_walk"
+			elif f_dot_c < -0.5:
+				target = "mixamo/crouch_back"
+			elif r_dot_c > 0.5:
+				target = "mixamo/crouch_right"
+			elif r_dot_c < -0.5:
+				target = "mixamo/crouch_left"
+			else:
+				target = "mixamo/crouch_walk"
+			speed_mult = 0.9 + (speed / 4.0) * 0.4
+		_anim.speed_scale = speed_mult
+		if _anim.current_animation != target and _anim.has_animation(target):
+			_anim.play(target, 0.18)
+		return
+	# 7. WEAPON DRAWN, UPRIGHT — combat states
+	var fire_window: float = float(WeaponDB.get_data(current_weapon_id).get("cooldown", 0.14)) - 0.08
+	if _fire_timer > fire_window and _anim.has_animation("mixamo/fire"):
+		target = "mixamo/fire"
+	elif _aiming and speed < 0.5 and _anim.has_animation("mixamo/aim"):
+		target = "mixamo/aim"
+	elif speed > 4.5:
+		target = "mixamo/run"
+		speed_mult = 1.05
+	elif speed > 0.4:
+		var fwd2: Vector3 = -global_transform.basis.z
+		var to_vel: Vector3 = Vector3(velocity.x, 0, velocity.z)
+		if fwd2.dot(to_vel) < 0.0:
+			target = "mixamo/walk_back"
+		else:
+			target = "mixamo/walk"
+		speed_mult = 0.9 + (speed / 5.5) * 0.4
+	else:
+		target = "mixamo/rifle_idle"
+	# Fallback
 	if not _anim.has_animation(target):
-		if _anim.has_animation("mixamo/idle"):
+		if _anim.has_animation("mixamo/rifle_idle"):
+			target = "mixamo/rifle_idle"
+		elif _anim.has_animation("mixamo/idle"):
 			target = "mixamo/idle"
 		else:
 			return
 	_anim.speed_scale = speed_mult
 	if _anim.current_animation != target:
-		_anim.play(target, 0.22)
+		_anim.play(target, 0.15)
 
 
 func _attach_gun_to_hand(model: Node3D) -> void:
@@ -679,8 +832,50 @@ func _attach_gun_to_hand(model: Node3D) -> void:
 	var gun_script: Script = load("res://gun.gd")
 	if gun_script == null:
 		return
-	var gun: Node3D = gun_script.build(att)
-	# Orient for Mixamo hand — rotate so barrel points forward
-	gun.rotation_degrees = Vector3(0, 90, 90)
-	gun.position = Vector3(0.0, 0.04, 0.02)
-	gun.scale = Vector3(0.9, 0.9, 0.9)
+	# Pick model based on current weapon
+	var model_path := "res://models/weapons/Guns/MGP7/MGP7_Rigged.glb"
+	match current_weapon_id:
+		WeaponDB.SMG:
+			model_path = "res://models/weapons/Guns/ZC57/ZC57_Rigged.glb"
+		WeaponDB.SHOTGUN:
+			model_path = "res://models/weapons/Guns/ZC57/ZC57_Rigged.glb"
+	var gun: Node3D = gun_script.build_from_glb(att, model_path)
+	# Orient for Mixamo hand — barrel forward
+	gun.rotation_degrees = Vector3(90, 0, 0)
+	gun.position = Vector3(0.0, 0.06, 0.0)
+	gun.scale = Vector3(1.2, 1.2, 1.2)
+	_gun_node = gun
+	gun.visible = false
+	# Add a muzzle marker at the barrel tip for accurate spawn position
+	var muzzle := Node3D.new()
+	muzzle.name = "Muzzle"
+	muzzle.position = Vector3(0, 0.015, -0.68)
+	gun.add_child(muzzle)
+	_gun_muzzle = muzzle
+
+
+func _tick_weapon_state(delta: float) -> void:
+	var speed: float = Vector2(velocity.x, velocity.z).length()
+	var should_draw := _aiming or touch_fire or speed > 3.0
+	if should_draw and not _weapon_drawn:
+		_weapon_drawn = true
+		_draw_timer = 0.6
+		_holster_wait = 0.0
+		if _gun_node != null:
+			_gun_node.visible = true
+	if _weapon_drawn and not should_draw:
+		_holster_wait += delta
+		if _holster_wait >= HOLSTER_DELAY:
+			_weapon_drawn = false
+			_holster_wait = 0.0
+			_holster_timer = 0.6
+			if _gun_node != null:
+				_gun_node.visible = false
+	if _draw_timer > 0.0:
+		_draw_timer -= delta
+	if _holster_timer > 0.0:
+		_holster_timer -= delta
+
+
+func is_weapon_drawn() -> bool:
+	return _weapon_drawn

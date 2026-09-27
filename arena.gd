@@ -19,6 +19,7 @@ const COLOR_ACCENT := Color(1.0, 0.72, 0.35)
 const COLOR_AMBIENT := Color(1.0, 0.82, 0.55)
 
 var _parent: Node3D = null
+var _mat_cache: Dictionary = {}
 
 func build(parent: Node3D) -> void:
 	_parent = parent
@@ -76,10 +77,7 @@ func _build_roof() -> void:
 	var b := BoxMesh.new()
 	b.size = Vector3(SIZE, 0.4, SIZE)
 	m.mesh = b
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = COLOR_ROOF
-	mat.roughness = 0.9
-	m.material_override = mat
+	m.material_override = _get_material("ceiling")
 	m.position = Vector3(0, WALL_H + 0.2, 0)
 	_parent.add_child(m)
 	# Collision
@@ -280,8 +278,8 @@ func _build_floor_tiles() -> void:
 			var x: float = -HALF + tile_size * 0.5 + ix * tile_size
 			var z: float = -HALF + tile_size * 0.5 + iz * tile_size
 			var alt := (ix + iz) % 2 == 0
-			var col: Color = tile_color_a if alt else tile_color_b
-			_deco_box(Vector3(x, 0.015, z), Vector3(tile_size - 0.08, 0.03, tile_size - 0.08), col)
+			var kind: String = "floor_a" if alt else "floor_b"
+			_textured_box(Vector3(x, 0.015, z), Vector3(tile_size - 0.08, 0.03, tile_size - 0.08), kind)
 			# Thin seam
 			_deco_box(Vector3(x, 0.005, z - tile_size * 0.5 + 0.04), Vector3(tile_size, 0.008, 0.04), gap_color)
 			_deco_box(Vector3(x - tile_size * 0.5 + 0.04, 0.005, z), Vector3(0.04, 0.008, tile_size), gap_color)
@@ -300,34 +298,35 @@ func _build_wall_patterns() -> void:
 	for i in range(int(SIZE / step)):
 		var x: float = -HALF + step * 0.5 + i * step
 		# North
-		_deco_box(Vector3(x, 2.0, -half_inner + 0.06), Vector3(step - 0.4, 3.2, 0.08), panel_color)
-		_deco_box(Vector3(x, 5.6, -half_inner + 0.06), Vector3(step - 0.4, 1.4, 0.08), panel_dark)
+		_textured_box(Vector3(x, 2.0, -half_inner + 0.06), Vector3(step - 0.4, 3.2, 0.08), "panel")
+		_textured_box(Vector3(x, 5.6, -half_inner + 0.06), Vector3(step - 0.4, 1.4, 0.08), "panel_dark")
 		_deco_box(Vector3(x + step * 0.5, 4.0, -half_inner + 0.06), Vector3(0.06, 6.0, 0.10), seam_color)
 		# South
-		_deco_box(Vector3(x, 2.0, half_inner - 0.06), Vector3(step - 0.4, 3.2, 0.08), panel_color)
-		_deco_box(Vector3(x, 5.6, half_inner - 0.06), Vector3(step - 0.4, 1.4, 0.08), panel_dark)
+		_textured_box(Vector3(x, 2.0, half_inner - 0.06), Vector3(step - 0.4, 3.2, 0.08), "panel")
+		_textured_box(Vector3(x, 5.6, half_inner - 0.06), Vector3(step - 0.4, 1.4, 0.08), "panel_dark")
 		_deco_box(Vector3(x + step * 0.5, 4.0, half_inner - 0.06), Vector3(0.06, 6.0, 0.10), seam_color)
 	# East + West wall panels
 	for i in range(int(SIZE / step)):
 		var z: float = -HALF + step * 0.5 + i * step
 		# West
-		_deco_box(Vector3(-half_inner + 0.06, 2.0, z), Vector3(0.08, 3.2, step - 0.4), panel_color)
-		_deco_box(Vector3(-half_inner + 0.06, 5.6, z), Vector3(0.08, 1.4, step - 0.4), panel_dark)
+		_textured_box(Vector3(-half_inner + 0.06, 2.0, z), Vector3(0.08, 3.2, step - 0.4), "panel")
+		_textured_box(Vector3(-half_inner + 0.06, 5.6, z), Vector3(0.08, 1.4, step - 0.4), "panel_dark")
 		_deco_box(Vector3(-half_inner + 0.06, 4.0, z + step * 0.5), Vector3(0.10, 6.0, 0.06), seam_color)
 		# East
-		_deco_box(Vector3(half_inner - 0.06, 2.0, z), Vector3(0.08, 3.2, step - 0.4), panel_color)
-		_deco_box(Vector3(half_inner - 0.06, 5.6, z), Vector3(0.08, 1.4, step - 0.4), panel_dark)
+		_textured_box(Vector3(half_inner - 0.06, 2.0, z), Vector3(0.08, 3.2, step - 0.4), "panel")
+		_textured_box(Vector3(half_inner - 0.06, 5.6, z), Vector3(0.08, 1.4, step - 0.4), "panel_dark")
 		_deco_box(Vector3(half_inner - 0.06, 4.0, z + step * 0.5), Vector3(0.10, 6.0, 0.06), seam_color)
 
 # ================================================================
 # MADE BY DANNY — big glowing sign on the north wall
 # ================================================================
 func _build_made_by_danny() -> void:
+	# Compact signature sign — fits on one wall panel section
 	var tm := TextMesh.new()
 	tm.text = "MADE BY DANNY"
 	tm.font_size = 128
-	tm.pixel_size = 0.042
-	tm.depth = 0.20
+	tm.pixel_size = 0.020
+	tm.depth = 0.10
 	tm.curve_step = 0.5
 	tm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -337,27 +336,28 @@ func _build_made_by_danny() -> void:
 	mat.albedo_color = Color(0.55, 0.95, 1.0)
 	mat.emission_enabled = true
 	mat.emission = Color(0.35, 0.90, 1.0)
-	mat.emission_energy_multiplier = 3.5
+	mat.emission_energy_multiplier = 3.0
 	mat.metallic = 0.6
 	mat.roughness = 0.25
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mi.material_override = mat
 	var wall_z := -HALF + WALL_THICK + 0.20
-	mi.position = Vector3(0, 4.5, wall_z)
+	# Smaller placement — mid-height on the wall, centered
+	mi.position = Vector3(0, 5.2, wall_z)
 	_parent.add_child(mi)
-	# Accent bars above + below the sign
-	_deco_box(Vector3(0, 5.9, wall_z), Vector3(14.0, 0.10, 0.14), Color(0.35, 0.90, 1.0))
-	_deco_box(Vector3(0, 3.1, wall_z), Vector3(14.0, 0.10, 0.14), Color(0.35, 0.90, 1.0))
-	# Spotlight over the sign
+	# Thin accent bars above + below (shorter, matches new size)
+	_deco_box(Vector3(0, 6.05, wall_z), Vector3(6.5, 0.06, 0.10), Color(0.35, 0.90, 1.0))
+	_deco_box(Vector3(0, 4.35, wall_z), Vector3(6.5, 0.06, 0.10), Color(0.35, 0.90, 1.0))
+	# Small spotlight aimed at the sign
 	var spot := SpotLight3D.new()
 	spot.light_color = Color(0.55, 0.92, 1.0)
-	spot.light_energy = 4.0
-	spot.spot_range = 16.0
-	spot.spot_angle = 42.0
-	spot.position = Vector3(0, 7.4, wall_z + 4.0)
-	spot.rotation_degrees = Vector3(-40, 0, 0)
+	spot.light_energy = 3.0
+	spot.spot_range = 10.0
+	spot.spot_angle = 38.0
+	spot.position = Vector3(0, 7.0, wall_z + 3.0)
+	spot.rotation_degrees = Vector3(-30, 0, 0)
 	_parent.add_child(spot)
-	print("[arena] MADE BY DANNY sign installed on north wall")
+	print("[arena] MADE BY DANNY sign installed (compact)")
 
 
 func _wall(pos: Vector3, size: Vector3) -> void:
@@ -406,7 +406,7 @@ func _emissive_box(pos: Vector3, size: Vector3, col: Color, energy: float) -> vo
 
 func _crate(pos: Vector3, size: float) -> void:
 	var full := pos + Vector3(0, size * 0.5, 0)
-	_deco_box(full, Vector3(size, size, size), Color(0.42, 0.30, 0.18))
+	_textured_box(full, Vector3(size, size, size), "crate")
 	_deco_box(full + Vector3(0, size * 0.5 + 0.02, 0), Vector3(size + 0.04, 0.06, size + 0.04), Color(0.55, 0.40, 0.22))
 	_solid(full, Vector3(size, size, size))
 
@@ -417,12 +417,105 @@ func _pillar(pos: Vector3, radius: float, height: float) -> void:
 	cyl.bottom_radius = radius
 	cyl.height = height
 	m.mesh = cyl
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.28, 0.24, 0.18)
-	mat.roughness = 0.6
-	mat.metallic = 0.4
-	m.material_override = mat
+	m.material_override = _get_material("pillar")
 	m.position = pos + Vector3(0, height * 0.5, 0)
 	_parent.add_child(m)
 	# Collision (square approximation of cylinder)
 	_solid(pos + Vector3(0, height * 0.5, 0), Vector3(radius * 2.0, height, radius * 2.0))
+
+
+# ================================================================
+# MATERIAL CACHE — procedural noise textures, built once
+# ================================================================
+func _noise_tex(freq: float, octaves: int = 4) -> NoiseTexture2D:
+	var n := FastNoiseLite.new()
+	n.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	n.frequency = freq
+	n.fractal_octaves = octaves
+	n.fractal_lacunarity = 2.0
+	n.fractal_gain = 0.5
+	var t := NoiseTexture2D.new()
+	t.noise = n
+	t.width = 128
+	t.height = 128
+	t.seamless = true
+	t.generate_mipmaps = true
+	return t
+
+
+func _get_material(kind: String) -> StandardMaterial3D:
+	if _mat_cache.has(kind):
+		return _mat_cache[kind]
+	var m := StandardMaterial3D.new()
+	match kind:
+		"floor_a":
+			m.albedo_color = Color(0.30, 0.25, 0.20)
+			m.roughness = 0.55
+			m.metallic = 0.25
+			m.albedo_texture = _noise_tex(0.22, 4)
+			m.uv1_scale = Vector3(2.5, 2.5, 2.5)
+		"floor_b":
+			m.albedo_color = Color(0.24, 0.20, 0.16)
+			m.roughness = 0.55
+			m.metallic = 0.25
+			m.albedo_texture = _noise_tex(0.28, 4)
+			m.uv1_scale = Vector3(2.5, 2.5, 2.5)
+		"wall":
+			m.albedo_color = Color(0.22, 0.19, 0.16)
+			m.roughness = 0.72
+			m.metallic = 0.22
+			m.albedo_texture = _noise_tex(0.18, 3)
+			m.uv1_scale = Vector3(2, 2, 2)
+		"wall_dark":
+			m.albedo_color = Color(0.13, 0.11, 0.10)
+			m.roughness = 0.82
+			m.metallic = 0.18
+			m.albedo_texture = _noise_tex(0.22, 3)
+			m.uv1_scale = Vector3(3, 3, 3)
+		"panel":
+			m.albedo_color = Color(0.26, 0.22, 0.18)
+			m.roughness = 0.65
+			m.metallic = 0.30
+			m.albedo_texture = _noise_tex(0.30, 3)
+			m.uv1_scale = Vector3(1.5, 1.5, 1.5)
+		"panel_dark":
+			m.albedo_color = Color(0.14, 0.12, 0.11)
+			m.roughness = 0.78
+			m.metallic = 0.25
+			m.albedo_texture = _noise_tex(0.35, 3)
+			m.uv1_scale = Vector3(1.5, 1.5, 1.5)
+		"ceiling":
+			m.albedo_color = Color(0.09, 0.08, 0.075)
+			m.roughness = 0.90
+			m.metallic = 0.15
+			m.albedo_texture = _noise_tex(0.24, 3)
+			m.uv1_scale = Vector3(2, 2, 2)
+		"crate":
+			m.albedo_color = Color(0.46, 0.32, 0.18)
+			m.roughness = 0.78
+			m.metallic = 0.10
+			m.albedo_texture = _noise_tex(0.55, 4)
+			m.uv1_scale = Vector3(3, 3, 3)
+		"pillar":
+			m.albedo_color = Color(0.30, 0.26, 0.20)
+			m.roughness = 0.60
+			m.metallic = 0.40
+			m.albedo_texture = _noise_tex(0.22, 3)
+			m.uv1_scale = Vector3(2, 4, 2)
+		_:
+			m.albedo_color = Color(0.20, 0.18, 0.15)
+			m.roughness = 0.75
+			m.metallic = 0.20
+	_mat_cache[kind] = m
+	return m
+
+
+func _textured_box(pos: Vector3, size: Vector3, kind: String) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	mesh.mesh = b
+	mesh.material_override = _get_material(kind)
+	mesh.position = pos
+	_parent.add_child(mesh)
+	return mesh
