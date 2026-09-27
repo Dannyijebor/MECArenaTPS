@@ -76,6 +76,11 @@ func _ready() -> void:
 		if lobby.has_signal("play_pressed"):
 			await lobby.play_pressed
 		lobby.queue_free()
+	# Refresh player with the character chosen in the lobby
+	var pl := get_tree().get_first_node_in_group("player")
+	if pl != null and pl.has_method("_refresh_character"):
+		pl.call("_refresh_character")
+		print("[main] player character refreshed: ", NetworkManager.selected_character)
 	_wire_net_signals()
 	_start_wave(1)
 

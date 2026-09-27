@@ -10,13 +10,14 @@ const UI_TEXT_DIM := Color(0.65, 0.75, 0.88)
 const UI_ACCENT := Color(0.35, 0.88, 1.0)
 const UI_DANGER := Color(1.0, 0.35, 0.35)
 
-const BTN_FIRE := Color(0.92, 0.28, 0.28)
-const BTN_JUMP := Color(0.28, 0.78, 0.42)
-const BTN_RELOAD := Color(0.90, 0.64, 0.20)
-const BTN_SWAP := Color(0.32, 0.55, 0.90)
-const BTN_AIM := Color(0.82, 0.85, 0.92)
-const BTN_CROUCH := Color(0.62, 0.35, 0.88)
-const BTN_MIC := Color(0.28, 0.78, 0.55)
+# Monochrome tactical palette — all buttons same white/transparent theme
+const BTN_FIRE := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_JUMP := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_RELOAD := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_SWAP := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_AIM := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_CROUCH := Color(1.0, 1.0, 1.0, 0.90)
+const BTN_MIC := Color(1.0, 1.0, 1.0, 0.90)
 
 # ============================================================
 # LAYOUT CONSTANTS
@@ -44,6 +45,7 @@ var _switch_touch_id := -1
 var _crouch_touch_id := -1
 var _ads_touch_id := -1
 var _mic_touch_id := -1
+var _ability_touch_id := -1
 
 var _wave: int = 1
 var _lives: int = 3
@@ -125,6 +127,10 @@ func _mic_center() -> Vector2:
 # ============================================================
 # INPUT
 # ============================================================
+func _ability_center() -> Vector2:
+	var vp := get_viewport().get_visible_rect().size
+	return Vector2(vp.x * 0.5 + 160.0, 110.0)
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		_handle_touch(event)
@@ -169,6 +175,11 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			if Voice != null:
 				Voice.set_transmitting(true)
 			return
+		if pos.distance_to(_ability_center()) < BUTTON_RADIUS + 14:
+			_ability_touch_id = event.index
+			if _player and _player.has_method("activate_ability"):
+				_player.call("activate_ability")
+			return
 		var vp := get_viewport().get_visible_rect().size
 		if pos.x < vp.x * 0.4 and pos.y > vp.y * 0.4:
 			_move_touch_id = event.index
@@ -202,6 +213,8 @@ func _handle_touch(event: InputEventScreenTouch) -> void:
 			_ads_touch_id = -1
 			if _player:
 				_player.touch_aim = false
+		if event.index == _ability_touch_id:
+			_ability_touch_id = -1
 		if event.index == _mic_touch_id:
 			_mic_touch_id = -1
 			if Voice != null:
@@ -231,21 +244,27 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 # UI DRAWING
 # ============================================================
 func _ui_button(center: Vector2, radius: float, base: Color, icon: String, pressed: bool) -> void:
-	var r := radius * (1.08 if pressed else 1.0)
+	var r := radius * (1.06 if pressed else 1.0)
+	# Outer glow when pressed
 	if pressed:
-		# Outer glow ring when pressed
-		draw_arc(center, r + 6, 0, TAU, 64, Color(base.r, base.g, base.b, 0.55), 5.0, true)
-	draw_circle(center + Vector2(0, 5), r + 2, Color(0, 0, 0, 0.42))
-	draw_circle(center, r, UI_DARK)
-	var fill_col: Color = base
-	fill_col.a = 0.95 if pressed else 0.62
+		draw_arc(center, r + 6, 0, TAU, 64, Color(1.0, 1.0, 1.0, 0.45), 4.0, true)
+	# Base dark ring (creates contrast behind white)
+	draw_circle(center + Vector2(0, 4), r + 1, Color(0, 0, 0, 0.28))
+	draw_circle(center, r, Color(0.05, 0.06, 0.08, 0.55))
+	# White fill — semi-transparent normally, brighter when pressed
+	var fill_a: float = 0.85 if pressed else 0.22
+	var fill_col := Color(1.0, 1.0, 1.0, fill_a)
 	draw_circle(center, r - 3, fill_col)
-	var hi: Color = Color(1, 1, 1, 0.22 if pressed else 0.10)
-	draw_circle(center + Vector2(0, -r * 0.24), r * 0.50, hi)
-	var border: Color = Color(1, 1, 1, 0.95) if pressed else UI_BORDER
-	draw_arc(center, r - 1, 0, TAU, 64, border, 3.0, true)
-	var icon_col: Color = Color(1, 1, 1, 0.98 if pressed else 0.90)
+	# Inner highlight (top)
+	var hi_a: float = 0.30 if pressed else 0.10
+	draw_circle(center + Vector2(0, -r * 0.24), r * 0.50, Color(1, 1, 1, hi_a))
+	# Outer white border
+	var border_a: float = 1.0 if pressed else 0.75
+	draw_arc(center, r - 1, 0, TAU, 64, Color(1, 1, 1, border_a), 2.5, true)
+	# Icon — white when idle, dark when pressed (inverted contrast)
+	var icon_col := Color(1.0, 1.0, 1.0, 0.95) if not pressed else Color(0.05, 0.06, 0.08, 0.95)
 	_ui_icon(center, r * 0.42, icon, icon_col)
+
 
 func _ui_icon(center: Vector2, size: float, icon: String, col: Color) -> void:
 	var s := size
@@ -301,39 +320,35 @@ func _draw() -> void:
 	_draw_hp_and_stats(vp)
 	_draw_death_overlay(vp)
 
+	_draw_ability_button(vp)
+
 func _draw_joystick(vp: Vector2) -> void:
 	var jc := _joystick_center()
 	var active: bool = _move_touch_id != -1
-	# Base ring
-	var base_col := Color(0.10, 0.14, 0.20, 0.55)
-	if active:
-		base_col = Color(0.12, 0.18, 0.26, 0.65)
-	draw_circle(jc, JOYSTICK_RADIUS, base_col)
-	var ring_col := Color(0.55, 0.88, 1.0, 0.75)
-	if active:
-		ring_col = Color(0.65, 0.95, 1.0, 1.0)
-	draw_arc(jc, JOYSTICK_RADIUS, 0, TAU, 64, ring_col, 4.0, true)
+	# Base ring — dark + white border
+	draw_circle(jc + Vector2(0, 4), JOYSTICK_RADIUS + 1, Color(0, 0, 0, 0.28))
+	draw_circle(jc, JOYSTICK_RADIUS, Color(0.05, 0.06, 0.08, 0.50))
+	var border_a: float = 1.0 if active else 0.65
+	draw_arc(jc, JOYSTICK_RADIUS, 0, TAU, 64, Color(1, 1, 1, border_a), 3.5, true)
 	# Knob follows finger
 	var kp: Vector2 = jc
 	if active:
 		kp = _move_knob_pos
-	# Direction indicator — a small line from center to knob when active
+	# Direction indicator line
 	if active:
 		var dir := (kp - jc)
 		if dir.length() > 4.0:
-			draw_line(jc, kp, Color(0.55, 0.88, 1.0, 0.55), 3.0, true)
-	# Knob body — bigger + brighter when active
+			draw_line(jc, kp, Color(1, 1, 1, 0.45), 2.5, true)
+	# Knob body — white when active, semi when idle
 	var knob_r := JOYSTICK_KNOB_RADIUS
-	var knob_col := Color(0.32, 0.78, 1.0, 0.85)
+	var knob_a: float = 0.85 if active else 0.35
 	if active:
-		knob_r = JOYSTICK_KNOB_RADIUS * 1.15
-		knob_col = Color(0.55, 0.92, 1.0, 1.0)
-		# Glow ring around knob
-		draw_arc(kp, knob_r + 4, 0, TAU, 48, Color(0.55, 0.92, 1.0, 0.55), 4.0, true)
-	draw_circle(kp, knob_r, knob_col)
-	draw_arc(kp, knob_r, 0, TAU, 48, Color(1, 1, 1, 0.95), 3.0, true)
-	# Small inner highlight
-	draw_circle(kp + Vector2(0, -knob_r * 0.30), knob_r * 0.45, Color(1, 1, 1, 0.28))
+		knob_r = JOYSTICK_KNOB_RADIUS * 1.10
+		draw_arc(kp, knob_r + 4, 0, TAU, 48, Color(1, 1, 1, 0.45), 3.0, true)
+	draw_circle(kp, knob_r, Color(1, 1, 1, knob_a))
+	draw_arc(kp, knob_r, 0, TAU, 48, Color(1, 1, 1, 1.0), 2.5, true)
+	draw_circle(kp + Vector2(0, -knob_r * 0.30), knob_r * 0.45, Color(1, 1, 1, 0.25))
+
 
 func _draw_buttons(vp: Vector2) -> void:
 	var fp := _fire_center()
@@ -488,3 +503,62 @@ func _draw_carry_bar(vp: Vector2) -> void:
 	elif ratio > 0.6:
 		label += "  LOADED"
 	draw_string(font, Vector2(bx, by - 6), label, HORIZONTAL_ALIGNMENT_RIGHT, bar_w, 14, col)
+
+
+func _draw_ability_button(vp: Vector2) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var st: Variant = _player.call("get_ability_state") if _player.has_method("get_ability_state") else null
+	if st == null or not (st is Dictionary):
+		return
+	var data: Dictionary = st
+	var ap := _ability_center()
+	var is_active: bool = bool(data.get("active", false))
+	var cd: float = float(data.get("cooldown", 0.0))
+	var remain: float = float(data.get("remaining", 0.0))
+	var dur: float = float(data.get("duration", 5.0))
+	var cd_max: float = float(data.get("cd_max", 7.0))
+	var cid: String = String(data.get("id", "SWAT"))
+	var cd_data: Dictionary = CharacterDB.get_data(cid) if CharacterDB != null else {}
+	var col: Color = cd_data.get("color", Color(0.30, 0.65, 1.0)) if cd_data.has("color") else Color(0.30, 0.65, 1.0)
+	# Base button
+	var r: float = BUTTON_RADIUS * 0.9
+	var fill: Color = col
+	var border: Color = Color(1, 1, 1, 0.95)
+	var label: String = String(cd_data.get("ability", "ABILITY")) if cd_data.has("ability") else "ABILITY"
+	var sublabel: String = ""
+	if is_active:
+		fill.a = 0.98
+		border = Color(1.0, 1.0, 0.6, 1.0)
+		sublabel = str(remain).pad_decimals(1) + "s"
+	elif cd > 0.0:
+		fill = Color(0.15, 0.15, 0.18, 0.75)
+		border = Color(0.5, 0.5, 0.5, 0.7)
+		sublabel = str(cd).pad_decimals(1) + "s"
+	else:
+		fill.a = 0.75
+	# Draw glow when ready and not active
+	if not is_active and cd <= 0.0:
+		draw_arc(ap, r + 6, 0, TAU, 48, Color(col.r, col.g, col.b, 0.55), 4.0, true)
+	# Dark base
+	draw_circle(ap + Vector2(0, 5), r + 2, Color(0, 0, 0, 0.42))
+	draw_circle(ap, r, UI_DARK)
+	draw_circle(ap, r - 3, fill)
+	draw_arc(ap, r - 1, 0, TAU, 48, border, 3.0, true)
+	# Inner highlight
+	draw_circle(ap + Vector2(0, -r * 0.24), r * 0.5, Color(1, 1, 1, 0.10))
+	# Cooldown arc
+	if is_active:
+		var pct: float = remain / max(dur, 0.01)
+		draw_arc(ap, r - 1, -PI * 0.5, -PI * 0.5 + TAU * pct, 32, Color(1, 1, 0.55, 0.95), 5.0, true)
+	elif cd > 0.0:
+		var pct2: float = 1.0 - (cd / max(cd_max, 0.01))
+		draw_arc(ap, r - 1, -PI * 0.5, -PI * 0.5 + TAU * pct2, 32, Color(0.6, 0.85, 1.0, 0.85), 5.0, true)
+	# Label
+	var font := ThemeDB.fallback_font
+	var txt_col: Color = Color(1, 1, 1) if (is_active or cd <= 0.0) else Color(0.6, 0.6, 0.65)
+	if label.length() > 8:
+		label = label.substr(0, 8)
+	draw_string(font, ap + Vector2(-36, -4), label, HORIZONTAL_ALIGNMENT_LEFT, 100, 13, txt_col)
+	if sublabel != "":
+		draw_string(font, ap + Vector2(-36, 14), sublabel, HORIZONTAL_ALIGNMENT_LEFT, 100, 14, Color(1, 1, 0.8))

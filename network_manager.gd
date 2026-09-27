@@ -13,6 +13,7 @@ var players: Dictionary = {}
 var my_peer_id: int = 0
 var is_host: bool = false
 var game_mode: String = "SOLO"
+var selected_character: String = "SWAT"
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)

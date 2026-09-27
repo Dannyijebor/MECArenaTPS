@@ -1,0 +1,388 @@
+extends CanvasLayer
+class_name Lobby
+
+signal play_pressed
+signal quit_pressed
+
+var _t: float = 0.0
+
+func _ready() -> void:
+	layer = 200
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_build()
+
+func _build() -> void:
+	# Background
+	var bg := ColorRect.new()
+	bg.color = Color(0.03, 0.025, 0.04)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(bg)
+	# Vignette (top dark band)
+	var band := ColorRect.new()
+	band.color = Color(0.10, 0.06, 0.12, 0.6)
+	band.anchor_left = 0.0
+	band.anchor_right = 1.0
+	band.anchor_top = 0.0
+	band.anchor_bottom = 0.35
+	add_child(band)
+	# Main title
+	var title := Label.new()
+	title.text = "RESONANCE"
+	title.add_theme_font_size_override("font_size", 96)
+	title.add_theme_color_override("font_color", Color(0.55, 0.95, 1.0))
+	title.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.12))
+	title.add_theme_constant_override("outline_size", 20)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	title.offset_top = 90.0
+	title.offset_bottom = 200.0
+	title.name = "Title"
+	add_child(title)
+	# Subtitle
+	var sub := Label.new()
+	sub.text = "THE DANYA PROTOCOL"
+	sub.add_theme_font_size_override("font_size", 26)
+	sub.add_theme_color_override("font_color", Color(0.75, 0.88, 1.0))
+	sub.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.12))
+	sub.add_theme_constant_override("outline_size", 8)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sub.offset_top = 205.0
+	sub.offset_bottom = 240.0
+	add_child(sub)
+	# Sector label
+	var sec := Label.new()
+	sec.text = "SECTOR 7 — THE VAULT"
+	sec.add_theme_font_size_override("font_size", 18)
+	sec.add_theme_color_override("font_color", Color(0.9, 0.75, 0.35))
+	sec.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sec.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sec.offset_top = 245.0
+	sec.offset_bottom = 275.0
+	add_child(sec)
+	# Danny signature — vertical tag pinned to the right edge
+	var danny := Label.new()
+	danny.text = "MADE BY DANNY"
+	danny.add_theme_font_size_override("font_size", 28)
+	danny.add_theme_color_override("font_color", Color(0.55, 0.95, 1.0, 0.95))
+	danny.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.12))
+	danny.add_theme_constant_override("outline_size", 10)
+	danny.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	danny.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	danny.size = Vector2(380, 40)
+	danny.pivot_offset = Vector2(190, 20)
+	danny.rotation_degrees = -90
+	danny.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	danny.offset_left = -400.0
+	danny.offset_right = -20.0
+	danny.offset_top = 120.0
+	danny.offset_bottom = 160.0
+	danny.name = "DannySig"
+	add_child(danny)
+	# Subtle left accent bar next to the signature
+	var bar := ColorRect.new()
+	bar.color = Color(0.55, 0.95, 1.0, 0.75)
+	bar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	bar.offset_left = -14.0
+	bar.offset_right = -10.0
+	bar.offset_top = 100.0
+	bar.offset_bottom = 260.0
+	add_child(bar)
+	# Play button
+	var play_btn := Button.new()
+	play_btn.text = "PLAY"
+	play_btn.add_theme_font_size_override("font_size", 34)
+	play_btn.custom_minimum_size = Vector2(280, 72)
+	play_btn.anchor_left = 0.5
+	play_btn.anchor_right = 0.5
+	play_btn.anchor_top = 0.5
+	play_btn.anchor_bottom = 0.5
+	play_btn.offset_left = -300.0
+	play_btn.offset_right = -20.0
+	play_btn.offset_top = -30.0
+	play_btn.offset_bottom = 40.0
+	play_btn.name = "PlayBtn"
+	play_btn.pressed.connect(_on_play)
+	_style_button(play_btn, Color(0.10, 0.40, 0.60), Color(0.20, 0.85, 1.0))
+	add_child(play_btn)
+	# Quit button
+	var quit_btn := Button.new()
+	quit_btn.text = "QUIT"
+	quit_btn.add_theme_font_size_override("font_size", 22)
+	quit_btn.custom_minimum_size = Vector2(280, 52)
+	quit_btn.anchor_left = 0.5
+	quit_btn.anchor_right = 0.5
+	quit_btn.anchor_top = 0.5
+	quit_btn.anchor_bottom = 0.5
+	quit_btn.offset_left = 20.0
+	quit_btn.offset_right = 300.0
+	quit_btn.offset_top = -30.0
+	quit_btn.offset_bottom = 40.0
+	quit_btn.pressed.connect(_on_quit)
+	_style_button(quit_btn, Color(0.20, 0.10, 0.15), Color(0.85, 0.35, 0.35))
+	add_child(quit_btn)
+	# --- Multiplayer: HOST ---
+	var host_btn := Button.new()
+	host_btn.text = "HOST"
+	host_btn.add_theme_font_size_override("font_size", 22)
+	host_btn.custom_minimum_size = Vector2(280, 52)
+	host_btn.anchor_left = 0.5
+	host_btn.anchor_right = 0.5
+	host_btn.anchor_top = 0.5
+	host_btn.anchor_bottom = 0.5
+	host_btn.offset_left = -300.0
+	host_btn.offset_right = -20.0
+	host_btn.offset_top = 50.0
+	host_btn.offset_bottom = 116.0
+	host_btn.pressed.connect(_on_host_pressed)
+	_style_button(host_btn, Color(0.10, 0.45, 0.20), Color(0.20, 0.85, 0.40))
+	add_child(host_btn)
+	# --- Multiplayer: JOIN ---
+	var join_btn := Button.new()
+	join_btn.text = "JOIN"
+	join_btn.add_theme_font_size_override("font_size", 22)
+	join_btn.custom_minimum_size = Vector2(280, 52)
+	join_btn.anchor_left = 0.5
+	join_btn.anchor_right = 0.5
+	join_btn.anchor_top = 0.5
+	join_btn.anchor_bottom = 0.5
+	join_btn.offset_left = 20.0
+	join_btn.offset_right = 300.0
+	join_btn.offset_top = 50.0
+	join_btn.offset_bottom = 116.0
+	join_btn.pressed.connect(_on_join_pressed)
+	_style_button(join_btn, Color(0.45, 0.28, 0.10), Color(0.95, 0.75, 0.20))
+	add_child(join_btn)
+	# --- CHARACTER ROW (5 buttons) ---
+	var char_label := Label.new()
+	char_label.text = "CHAR:"
+	char_label.add_theme_font_size_override("font_size", 16)
+	char_label.add_theme_color_override("font_color", Color(0.80, 0.88, 0.95))
+	char_label.anchor_left = 0.5
+	char_label.anchor_right = 0.5
+	char_label.anchor_top = 0.5
+	char_label.anchor_bottom = 0.5
+	char_label.offset_left = -320.0
+	char_label.offset_right = -270.0
+	char_label.offset_top = 5.0
+	char_label.offset_bottom = 35.0
+	char_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(char_label)
+	var chars := [
+		{"id": "SWAT",  "label": "VECTOR",  "color": Color(0.30, 0.65, 1.0)},
+		{"id": "AJ",    "label": "WRAITH",    "color": Color(1.0, 0.85, 0.30)},
+		{"id": "CH39",  "label": "ANVIL",  "color": Color(0.85, 0.45, 0.20)},
+		{"id": "MARIA", "label": "ORACLE", "color": Color(0.85, 0.55, 0.95)},
+		{"id": "HEAVY", "label": "REAVER", "color": Color(0.75, 0.20, 0.25)},
+	]
+	var cw := 96.0
+	var cgap := 8.0
+	var ctw: float = cw * 5 + cgap * 4
+	var cx0: float = -ctw * 0.5 + 50.0
+	for i in range(chars.size()):
+		var ch: Dictionary = chars[i]
+		var cb := Button.new()
+		cb.text = String(ch.label)
+		cb.add_theme_font_size_override("font_size", 12)
+		cb.custom_minimum_size = Vector2(cw, 30)
+		cb.anchor_left = 0.5
+		cb.anchor_right = 0.5
+		cb.anchor_top = 0.5
+		cb.anchor_bottom = 0.5
+		cb.offset_left = cx0 + i * (cw + cgap)
+		cb.offset_right = cx0 + i * (cw + cgap) + cw
+		cb.offset_top = 5.0
+		cb.offset_bottom = 35.0
+		cb.name = "Char_" + String(ch.id)
+		cb.pressed.connect(_on_char_selected.bind(String(ch.id)))
+		_style_button(cb, Color(ch.color).darkened(0.45), Color(ch.color))
+		add_child(cb)
+	_highlight_char("SWAT")
+	# --- MODE ROW (4 toggle buttons) ---
+
+	var mode_label := Label.new()
+	mode_label.text = "MODE:"
+	mode_label.add_theme_font_size_override("font_size", 16)
+	mode_label.add_theme_color_override("font_color", Color(0.80, 0.88, 0.95))
+	mode_label.anchor_left = 0.5
+	mode_label.anchor_right = 0.5
+	mode_label.anchor_top = 0.5
+	mode_label.anchor_bottom = 0.5
+	mode_label.offset_left = -320.0
+	mode_label.offset_right = -270.0
+	mode_label.offset_top = 130.0
+	mode_label.offset_bottom = 160.0
+	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(mode_label)
+	# 4 mode buttons, side by side
+	var modes := [
+		{"id": "SOLO",   "label": "SOLO",   "color": Color(0.20, 0.55, 0.85)},
+		{"id": "1V1",    "label": "1v1",    "color": Color(0.85, 0.35, 0.25)},
+		{"id": "SQUAD",  "label": "SQUAD",  "color": Color(0.30, 0.75, 0.40)},
+		{"id": "BR",     "label": "BATTLE ROYALE", "color": Color(0.85, 0.65, 0.15)},
+	]
+	var mode_btn_w := 120.0
+	var mode_gap := 10.0
+	var total_w: float = mode_btn_w * 4 + mode_gap * 3
+	var start_x: float = -total_w * 0.5 + 50.0
+	for i in range(modes.size()):
+		var m: Dictionary = modes[i]
+		var mb := Button.new()
+		mb.text = String(m.label)
+		mb.add_theme_font_size_override("font_size", 14)
+		mb.custom_minimum_size = Vector2(mode_btn_w, 34)
+		mb.anchor_left = 0.5
+		mb.anchor_right = 0.5
+		mb.anchor_top = 0.5
+		mb.anchor_bottom = 0.5
+		mb.offset_left = start_x + i * (mode_btn_w + mode_gap)
+		mb.offset_right = start_x + i * (mode_btn_w + mode_gap) + mode_btn_w
+		mb.offset_top = 132.0
+		mb.offset_bottom = 166.0
+		mb.name = "Mode_" + String(m.id)
+		mb.pressed.connect(_on_mode_selected.bind(String(m.id)))
+		_style_button(mb, Color(m.color).darkened(0.45), Color(m.color))
+		add_child(mb)
+	# Highlight the default (SOLO)
+	_highlight_mode("SOLO")
+
+	# --- IP entry for joining ---
+	var ip_input := LineEdit.new()
+	ip_input.name = "IpInput"
+	ip_input.placeholder_text = "Host IP (leave empty for localhost)"
+	ip_input.add_theme_font_size_override("font_size", 16)
+	ip_input.custom_minimum_size = Vector2(360, 40)
+	ip_input.anchor_left = 0.5
+	ip_input.anchor_right = 0.5
+	ip_input.anchor_top = 0.5
+	ip_input.anchor_bottom = 0.5
+	ip_input.offset_left = -300.0
+	ip_input.offset_right = 300.0
+	ip_input.offset_top = 185.0
+	ip_input.offset_bottom = 220.0
+	add_child(ip_input)
+
+	# Footer
+	var footer := Label.new()
+	footer.text = "SURVIVE THE WAVES  •  EXTRACT  •  REPEAT"
+	footer.add_theme_font_size_override("font_size", 14)
+	footer.add_theme_color_override("font_color", Color(0.55, 0.60, 0.70))
+	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.anchor_left = 0.0
+	footer.anchor_right = 1.0
+	footer.anchor_top = 1.0
+	footer.anchor_bottom = 1.0
+	footer.offset_top = -80.0
+	footer.offset_bottom = -50.0
+	add_child(footer)
+
+func _style_button(btn: Button, normal: Color, border: Color) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = normal
+	sb.border_color = border
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("normal", sb)
+	var sb_hover := sb.duplicate() as StyleBoxFlat
+	sb_hover.bg_color = normal.lightened(0.15)
+	btn.add_theme_stylebox_override("hover", sb_hover)
+	var sb_press := sb.duplicate() as StyleBoxFlat
+	sb_press.bg_color = normal.darkened(0.2)
+	btn.add_theme_stylebox_override("pressed", sb_press)
+	btn.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
+
+func _process(delta: float) -> void:
+	_t += delta
+	# Pulse the title glow
+	var title := get_node_or_null("Title")
+	if title != null and title is Label:
+		var pulse: float = 0.75 + 0.25 * sin(_t * 1.6)
+		(title as Label).modulate.a = pulse
+
+func _on_play() -> void:
+	play_pressed.emit()
+
+func _on_quit() -> void:
+	quit_pressed.emit()
+	get_tree().quit()
+
+
+func _on_host_pressed() -> void:
+	print("[lobby] HOST pressed")
+	if NetworkManager.server_started.is_connected(_on_network_ready):
+		NetworkManager.server_started.disconnect(_on_network_ready)
+	NetworkManager.server_started.connect(_on_network_ready, CONNECT_ONE_SHOT)
+	NetworkManager.host_game("Host")
+
+
+func _on_join_pressed() -> void:
+	print("[lobby] JOIN pressed")
+	var ip_field := get_node_or_null("IpInput") as LineEdit
+	var ip := "127.0.0.1"
+	if ip_field != null and not ip_field.text.strip_edges().is_empty():
+		ip = ip_field.text.strip_edges()
+	# Disconnect existing handlers before re-binding (handles retry after failure)
+	if NetworkManager.connected_ok.is_connected(_on_network_ready):
+		NetworkManager.connected_ok.disconnect(_on_network_ready)
+	if NetworkManager.connection_failed.is_connected(_on_connection_failed_popup):
+		NetworkManager.connection_failed.disconnect(_on_connection_failed_popup)
+	NetworkManager.connected_ok.connect(_on_network_ready, CONNECT_ONE_SHOT)
+	NetworkManager.connection_failed.connect(_on_connection_failed_popup, CONNECT_ONE_SHOT)
+	NetworkManager.join_game(ip)
+
+
+func _on_network_ready() -> void:
+	print("[lobby] network ready — starting game")
+	# Tell main.gd it should build a multiplayer game
+	set_meta("network_ready", true)
+	play_pressed.emit()
+
+
+func _on_connection_failed_popup() -> void:
+	print("[lobby] connection failed")
+
+
+
+
+func _on_mode_selected(mode_id: String) -> void:
+	NetworkManager.game_mode = mode_id
+	print("[lobby] mode selected: ", mode_id)
+	_highlight_mode(mode_id)
+
+
+func _highlight_mode(mode_id: String) -> void:
+	var all_ids := ["SOLO", "1V1", "SQUAD", "BR"]
+	for mid in all_ids:
+		var btn := get_node_or_null("Mode_" + mid) as Button
+		if btn == null:
+			continue
+		var is_selected: bool = (mid == mode_id)
+		if is_selected:
+			btn.modulate = Color(1.0, 1.0, 1.0, 1.0)
+			btn.add_theme_color_override("font_color", Color(1.0, 0.98, 0.85))
+		else:
+			btn.modulate = Color(1.0, 1.0, 1.0, 0.55)
+			btn.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+
+
+func _on_char_selected(char_id: String) -> void:
+	if NetworkManager != null:
+		NetworkManager.selected_character = char_id
+	print("[lobby] character selected: ", char_id)
+	_highlight_char(char_id)
+
+
+func _highlight_char(char_id: String) -> void:
+	var all_ids := ["SWAT", "AJ", "CH39", "MARIA", "HEAVY"]
+	for cid in all_ids:
+		var btn := get_node_or_null("Char_" + cid) as Button
+		if btn == null:
+			continue
+		var sel: bool = (cid == char_id)
+		if sel:
+			btn.modulate = Color(1.0, 1.0, 1.0, 1.0)
+			btn.add_theme_color_override("font_color", Color(1.0, 0.98, 0.85))
+		else:
+			btn.modulate = Color(1.0, 1.0, 1.0, 0.55)
+			btn.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))

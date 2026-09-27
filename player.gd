@@ -72,6 +72,17 @@ var _holster_wait: float = 0.0
 const HOLSTER_DELAY := 3.0
 var _gun_muzzle: Node3D = null
 var _use_animations: bool = false
+var _speed_mult: float = 1.0
+var _dmg_mult: float = 1.0
+var _regen_delay_mult: float = 1.0
+var _regen_rate_mult: float = 1.0
+var _heal_bonus: int = 0
+var _char_id: String = "SWAT"
+var _ability_active: bool = false
+var _ability_timer: float = 0.0
+var _ability_cd: float = 0.0
+const ABILITY_DURATION := 5.0
+const ABILITY_COOLDOWN := 7.0
 var _carry_weight: float = 0.0
 var _max_carry: float = 2400.0
 var _carry_mult: float = 1.0
@@ -106,6 +117,7 @@ func _ready() -> void:
 	rotation.y = _yaw
 
 func _physics_process(delta: float) -> void:
+	tick_ability(delta)
 	_tick_weapon_state(delta)
 	if _reload_timer > 0.0:
 		_reload_timer -= delta
@@ -126,7 +138,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= GRAVITY * delta
 
 	if touch_jump and is_on_floor():
-		velocity.y = JUMP_VELOCITY
+		var jv: float = JUMP_VELOCITY
+		if _ability_active and _char_id == "AJ":
+			jv *= 1.6
+		velocity.y = jv
 	touch_jump = false
 
 	if touch_look.length_squared() > 0.0001:
@@ -162,8 +177,10 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func take_damage(amount: int) -> void:
+	if _ability_active and _char_id == "CH39":
+		return  # IRONHIDE: immune to damage
 	SFX.play("hurt", -2.0)
-	_regen_wait = REGEN_DELAY
+	_regen_wait = REGEN_DELAY * _regen_delay_mult
 	_regen_accum = 0.0
 	if _iframes > 0.0:
 		return
@@ -253,8 +270,13 @@ func fire() -> void:
 		SFX.play("empty", -4.0)
 		_start_reload()
 		return
-	ammo -= 1
-	_fire_timer = float(wd.get("cooldown", 0.14))
+	var cd_val: float = float(wd.get("cooldown", 0.14))
+	if _ability_active and _char_id == "SWAT":
+		# FOCUS: infinite ammo + 40% faster fire
+		cd_val *= 0.6
+	else:
+		ammo -= 1
+	_fire_timer = cd_val
 	SFX.play("shoot", 0.0, randf_range(0.96, 1.04))
 
 	# Aim direction still from camera (that's the crosshair)
@@ -287,6 +309,9 @@ func fire() -> void:
 	if _aiming:
 		spread_rad *= ADS_SPREAD_MULT
 	var damage: int = int(wd.get("damage", 5))
+	damage = int(float(damage) * _dmg_mult)
+	if _ability_active and _char_id == "HEAVY":
+		damage *= 3
 	var bullet_script: Script = load("res://bullet.gd")
 
 	for i in range(pellets):
@@ -360,6 +385,8 @@ func tree_set_scene_light(l: OmniLight3D, pos: Vector3) -> void:
 	l.global_position = pos
 
 func _start_reload() -> void:
+	if _ability_active and _char_id == "SWAT":
+		return
 	if _reloading:
 		return
 	var wd: Dictionary = WeaponDB.get_data(current_weapon_id)
@@ -402,9 +429,15 @@ func _tick_regen(delta: float) -> void:
 		_regen_accum = 0.0
 		return
 	if _regen_wait > 0.0:
-		_regen_wait -= delta
-		return
-	_regen_accum += REGEN_RATE * delta
+		if _ability_active and _char_id == "MARIA":
+			_regen_wait = 0.0
+		else:
+			_regen_wait -= delta * _regen_rate_mult
+			return
+	var rate: float = REGEN_RATE
+	if _ability_active and _char_id == "MARIA":
+		rate *= 4.0
+	_regen_accum += rate * delta
 	if _regen_accum < 1.0:
 		return
 	var gain: int = int(_regen_accum)
@@ -416,6 +449,7 @@ func _tick_regen(delta: float) -> void:
 
 
 func heal(amount: int) -> void:
+	amount += _heal_bonus
 	if hp <= 0:
 		return
 	var before: int = hp
@@ -516,15 +550,18 @@ func _tick_movement_feel(delta: float) -> void:
 
 
 func _get_move_speed() -> float:
+	var base := SPEED * _speed_mult * _carry_mult
+	if _ability_active and _char_id == "AJ":
+		base *= 1.9
 	if _aiming:
-		return SPEED * ADS_SPEED_MULT * _carry_mult
+		return base * ADS_SPEED_MULT
 	if _sliding:
-		return SPEED * SLIDE_MULT * _carry_mult
+		return base * SLIDE_MULT
 	if _crouching:
-		return SPEED * CROUCH_MULT * _carry_mult
+		return base * CROUCH_MULT
 	if _sprinting:
-		return SPEED * SPRINT_MULT * _carry_mult
-	return SPEED * _carry_mult
+		return base * SPRINT_MULT
+	return base
 
 
 func report_hit(dmg: int, is_headshot: bool, world_pos: Vector3) -> void:
@@ -553,7 +590,14 @@ func _setup_human_visual() -> void:
 			(c as MeshInstance3D).visible = false
 
 	# Load the SWAT GLB — real Mixamo-rigged tactical character
-	var scene: PackedScene = load("res://models/avatars/swat.glb")
+	# Load the selected character model
+	var char_data: Dictionary = CharacterDB.get_data(_char_id)
+	var model_path: String = String(char_data.get("path", "res://models/avatars/swat.glb"))
+	# Fall back to SWAT if the selected model fails to load
+	var scene: PackedScene = load(model_path)
+	if scene == null:
+		print("[player] failed to load ", model_path, " - falling back to SWAT")
+		scene = load("res://models/avatars/swat.glb")
 	if scene == null:
 		print("[player] swat.glb not found")
 		return
@@ -879,3 +923,102 @@ func _tick_weapon_state(delta: float) -> void:
 
 func is_weapon_drawn() -> bool:
 	return _weapon_drawn
+
+
+func _apply_character_stats() -> void:
+	var d: Dictionary = CharacterDB.get_data(_char_id)
+	_speed_mult = float(d.get("speed_mult", 1.0))
+	_dmg_mult = float(d.get("dmg_mult", 1.0))
+	_regen_delay_mult = float(d.get("regen_delay_mult", 1.0))
+	_regen_rate_mult = float(d.get("regen_rate_mult", 1.0))
+	_heal_bonus = int(d.get("heal_bonus", 0))
+	# Apply HP multiplier
+	var hp_mult: float = float(d.get("hp_mult", 1.0))
+	max_hp = int(float(MAX_HP) * hp_mult)
+	hp = max_hp
+	if hp_changed:
+		hp_changed.emit(hp)
+	print("[player] char: ", _char_id, "  hp=", max_hp, "  spd=", _speed_mult, "  dmg=", _dmg_mult)
+
+
+func _refresh_character() -> void:
+	if NetworkManager != null:
+		_char_id = NetworkManager.selected_character
+	print("[player] refreshing to character: ", _char_id)
+	# Collect all model roots to remove
+	var to_remove: Array = []
+	for c in get_children():
+		if c == cam_pivot:
+			continue
+		if c is CollisionShape3D:
+			continue
+		if c is MeshInstance3D:
+			to_remove.append(c)
+			continue
+		if c is Node3D:
+			# Anything with Skeleton3D or AnimationPlayer is a model root
+			if c.find_child("Skeleton3D", true, false) != null:
+				to_remove.append(c)
+			elif c.find_child("AnimationPlayer", true, false) != null:
+				to_remove.append(c)
+	for c in to_remove:
+		remove_child(c)
+		c.queue_free()
+	# Reset animation refs
+	_anim = null
+	_skeleton = null
+	_bones.clear()
+	_use_animations = false
+	# Load new character model
+	_setup_human_visual()
+	# Reapply stats and reset HP
+	_apply_character_stats()
+	hp = max_hp
+	if hp_changed:
+		hp_changed.emit(hp)
+
+
+func activate_ability() -> void:
+	if _ability_active or _ability_cd > 0.0:
+		return
+	if hp <= 0:
+		return
+	_ability_active = true
+	_ability_timer = ABILITY_DURATION
+	print("[ability] activated: ", _char_id)
+	# Instant effects (some abilities fire once on activation)
+	match _char_id:
+		"MARIA":
+			# Instant full heal
+			var before: int = hp
+			hp = max_hp
+			if hp != before and hp_changed:
+				hp_changed.emit(hp)
+			SFX.play("wave_clear", -4.0, 1.4)
+		_:
+			SFX.play("reload", -2.0, 1.3)
+
+
+func tick_ability(delta: float) -> void:
+	if _ability_active:
+		_ability_timer -= delta
+		if _ability_timer <= 0.0:
+			_ability_active = false
+			_ability_timer = 0.0
+			_ability_cd = ABILITY_COOLDOWN
+			print("[ability] expired, cooldown started")
+	elif _ability_cd > 0.0:
+		_ability_cd -= delta
+		if _ability_cd <= 0.0:
+			_ability_cd = 0.0
+
+
+func get_ability_state() -> Dictionary:
+	return {
+		"active": _ability_active,
+		"remaining": _ability_timer,
+		"cooldown": _ability_cd,
+		"duration": ABILITY_DURATION,
+		"cd_max": ABILITY_COOLDOWN,
+		"id": _char_id,
+	}
